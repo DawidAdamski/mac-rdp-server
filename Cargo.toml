@@ -1,0 +1,31 @@
+[package]
+name = "mac-rdp-server"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "RDP server for macOS"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+# Protocol engine. Pinned exactly — see ADR-0001 (fast-moving API).
+# The `helper` feature provides TlsIdentityCtx (ADR-0004).
+ironrdp-server = { version = "=0.13.0", features = ["helper"] }
+
+anyhow = "1"
+async-trait = "0.1"
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+hostname = "0.4"
+rcgen = "0.14"
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+
+[lints.rust]
+unsafe_code = "deny"
