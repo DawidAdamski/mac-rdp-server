@@ -18,7 +18,12 @@ bytes = "1"
 clap = { version = "4", features = ["derive"] }
 hostname = "0.4"
 rcgen = "0.14"
+# Pinned exactly — see ADR-0002 (four majors in two months).
+# `macos_14_0` gates SCShareableContentInfo/point_pixel_scale, which is how the
+# Retina backing-store size is resolved (F-002.5).
+screencapturekit = { version = "=8.0.1", features = ["macos_14_0"] }
 serde = { version = "1", features = ["derive"] }
+thiserror = "2"
 toml = "0.9"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"

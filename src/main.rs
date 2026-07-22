@@ -1,16 +1,20 @@
 //! `mac-rdp-server` — RDP server for macOS.
 //!
-//! Wave 0 (F-001): TLS listener serving a synthetic test pattern, with client
-//! input logged rather than injected. See `specs/` for the full plan.
+//! Wave 1 (F-002): serves the live Mac desktop over TLS, with client input
+//! logged rather than injected. See `specs/` for the full plan.
 
 use anyhow::{Context as _, Result};
 use clap::Parser as _;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
-use mac_rdp_server::capture::{FrameSource as _, test_pattern::TestPatternSource};
+use mac_rdp_server::capture::placeholder::{Placeholder, PlaceholderSource};
+use mac_rdp_server::capture::screen::ScreenCaptureKitSource;
+use mac_rdp_server::capture::test_pattern;
+use mac_rdp_server::capture::{FrameSource, FrameStream};
 use mac_rdp_server::config::{Cli, Config};
 use mac_rdp_server::input::logging::LoggingSink;
-use mac_rdp_server::{input, session, tls};
+use mac_rdp_server::perms::{Permission, PermissionState};
+use mac_rdp_server::{input, perms, session, tls};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -29,26 +33,75 @@ async fn main() -> Result<()> {
 
     tls::ensure_self_signed(&config.cert_path, &config.key_path).context("preparing the TLS certificate")?;
 
-    let mut source = TestPatternSource::default();
-    // Not named `display`: `tracing` reserves that identifier for its own
-    // formatting sigil and would try to call it as a function.
-    for screen in source.displays().context("enumerating displays")? {
-        info!(
-            id = screen.id.0,
-            name = %screen.name,
-            width_px = screen.width_px,
-            height_px = screen.height_px,
-            scale_factor = screen.scale_factor,
-            "display available"
-        );
-    }
+    let mut source = build_source(&config)?;
+    log_displays(source.as_ref());
 
-    let (width, height) = source.desktop_size();
     let stream = source.start().await.context("starting the frame source")?;
+    // Read the size only after starting: ScreenCaptureKitSource corrects it
+    // from the first real frame, which is the only size guaranteed to match
+    // the pixels we actually send (F-002, AC-5).
+    let (width, height) = source.desktop_size();
     info!(width, height, "desktop size");
 
     let dispatcher = input::spawn(Box::new(LoggingSink::new()), input::DEFAULT_QUEUE_CAPACITY);
+    let result = serve(&config, stream, width, height, dispatcher).await;
 
+    if let Err(error) = source.stop().await {
+        warn!(?error, "failed to stop the frame source cleanly");
+    }
+
+    if let Err(ref error) = result {
+        error!(?error, "server stopped with an error");
+    }
+    result
+}
+
+/// Picks a frame source, degrading to an explanatory placeholder rather than
+/// failing when Screen Recording is refused (F-002.13).
+fn build_source(config: &Config) -> Result<Box<dyn FrameSource>> {
+    if perms::ensure(Permission::ScreenRecording) == PermissionState::Denied {
+        warn!("capturing the screen is not possible; serving the permission placeholder instead");
+        return Ok(Box::new(PlaceholderSource::new(
+            test_pattern::DEFAULT_WIDTH,
+            test_pattern::DEFAULT_HEIGHT,
+            Placeholder::PermissionDenied,
+        )));
+    }
+
+    // Anything failing past this point is a real configuration or system error
+    // — an out-of-range display index must be reported, not papered over.
+    let source =
+        ScreenCaptureKitSource::new(config.display, config.max_fps).context("initialising ScreenCaptureKit capture")?;
+    Ok(Box::new(source))
+}
+
+fn log_displays(source: &dyn FrameSource) {
+    match source.displays() {
+        // Not named `display`: `tracing` reserves that identifier for its own
+        // formatting sigil and would try to call it as a function.
+        Ok(screens) => {
+            for screen in screens {
+                info!(
+                    id = screen.id.0,
+                    name = %screen.name,
+                    width_px = screen.width_px,
+                    height_px = screen.height_px,
+                    scale_factor = screen.scale_factor,
+                    "display available"
+                );
+            }
+        }
+        Err(error) => warn!(?error, "could not enumerate displays"),
+    }
+}
+
+async fn serve(
+    config: &Config,
+    stream: FrameStream,
+    width: u32,
+    height: u32,
+    dispatcher: input::InputDispatcher,
+) -> Result<()> {
     let desktop_width = u16::try_from(width).context("desktop width does not fit in u16")?;
     let desktop_height = u16::try_from(height).context("desktop height does not fit in u16")?;
 
@@ -62,21 +115,14 @@ async fn main() -> Result<()> {
         dispatcher,
     });
 
-    let result = tokio::select! {
+    tokio::select! {
         result = server => result,
         signal = tokio::signal::ctrl_c() => {
             signal.context("waiting for Ctrl-C")?;
             info!("interrupted, shutting down");
             Ok(())
         }
-    };
-
-    source.stop().await.ok();
-
-    if let Err(ref error) = result {
-        error!(?error, "server stopped with an error");
     }
-    result
 }
 
 fn init_logging(level: &str) -> Result<()> {

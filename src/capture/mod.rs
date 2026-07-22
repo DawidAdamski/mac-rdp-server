@@ -2,8 +2,13 @@
 //!
 //! This module knows nothing about RDP. See `specs/01-architecture.md` §1.
 
+pub mod canvas;
+pub mod placeholder;
+pub mod screen;
 pub mod test_pattern;
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use anyhow::Result;
@@ -12,7 +17,7 @@ use tokio::sync::watch;
 
 /// Pixel layout of a [`Frame`] buffer.
 ///
-/// Only one variant for now: ScreenCaptureKit is configured for
+/// Only one variant: ScreenCaptureKit is configured for
 /// `kCVPixelFormatType_32BGRA`, i.e. bytes in memory are B, G, R, A (ADR-0005).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PixelFormat {
@@ -39,6 +44,9 @@ pub struct Frame {
     pub stride: usize,
     pub format: PixelFormat,
     pub data: Bytes,
+    /// Monotonic counter assigned by the source. Gaps observed by a consumer
+    /// are frames lost to coalescing, which is how [`CaptureStats`] measures it.
+    pub sequence: u64,
     pub captured_at: Instant,
 }
 
@@ -75,6 +83,7 @@ impl core::fmt::Debug for Frame {
             .field("height", &self.height)
             .field("stride", &self.stride)
             .field("format", &self.format)
+            .field("sequence", &self.sequence)
             .field("data_len", &self.data.len())
             .finish()
     }
@@ -95,10 +104,87 @@ pub struct DisplayInfo {
     pub name: String,
 }
 
+/// Diagnostic counters for a capture session (F-002.18).
+#[derive(Debug, Default)]
+pub struct CaptureStats {
+    sequence: AtomicU64,
+    received: AtomicU64,
+    delivered: AtomicU64,
+    coalesced: AtomicU64,
+    skipped: AtomicU64,
+    rejected: AtomicU64,
+    bytes: AtomicU64,
+    logged_rejections: AtomicU64,
+}
+
+/// A consistent-enough read of [`CaptureStats`] for logging.
+#[derive(Debug, Clone, Copy)]
+pub struct StatsSnapshot {
+    pub received: u64,
+    pub delivered: u64,
+    pub coalesced: u64,
+    pub skipped: u64,
+    pub rejected: u64,
+    pub bytes: u64,
+}
+
+impl StatsSnapshot {
+    #[must_use]
+    pub fn average_frame_bytes(&self) -> u64 {
+        self.bytes.checked_div(self.received).unwrap_or(0)
+    }
+}
+
+impl CaptureStats {
+    pub(crate) fn next_sequence(&self) -> u64 {
+        self.sequence.fetch_add(1, Ordering::Relaxed)
+    }
+
+    pub(crate) fn record_received(&self, bytes: u64) {
+        self.received.fetch_add(1, Ordering::Relaxed);
+        self.bytes.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_delivered(&self, skipped: u64) {
+        self.delivered.fetch_add(1, Ordering::Relaxed);
+        if skipped > 0 {
+            self.coalesced.fetch_add(skipped, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn record_skipped(&self) {
+        self.skipped.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_rejected(&self) {
+        self.rejected.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Rate limiter for rejection logging: a bad pixel format is bad for every
+    /// frame, and one warning per frame at 60 fps drowns the log.
+    pub(crate) fn should_log_rejection(&self) -> bool {
+        let n = self.logged_rejections.fetch_add(1, Ordering::Relaxed);
+        n < 3 || n.is_power_of_two()
+    }
+
+    #[must_use]
+    pub fn snapshot(&self) -> StatsSnapshot {
+        StatsSnapshot {
+            received: self.received.load(Ordering::Relaxed),
+            delivered: self.delivered.load(Ordering::Relaxed),
+            coalesced: self.coalesced.load(Ordering::Relaxed),
+            skipped: self.skipped.load(Ordering::Relaxed),
+            rejected: self.rejected.load(Ordering::Relaxed),
+            bytes: self.bytes.load(Ordering::Relaxed),
+        }
+    }
+}
+
 /// A source of frames.
 ///
-/// Implementations: [`test_pattern::TestPatternSource`] (wave 0),
-/// `ScreenCaptureKitSource` (wave 1, ADR-0002).
+/// Implementations: [`test_pattern::TestPatternSource`] and
+/// [`placeholder::PlaceholderSource`] (synthetic), and
+/// [`screen::ScreenCaptureKitSource`] (the real desktop, ADR-0002).
 #[async_trait::async_trait]
 pub trait FrameSource: Send {
     fn displays(&self) -> Result<Vec<DisplayInfo>>;
@@ -115,6 +201,8 @@ pub trait FrameSource: Send {
 pub struct FrameStream {
     rx: watch::Receiver<Frame>,
     delivered_initial: bool,
+    last_sequence: Option<u64>,
+    stats: Option<Arc<CaptureStats>>,
 }
 
 impl FrameStream {
@@ -122,7 +210,15 @@ impl FrameStream {
         Self {
             rx,
             delivered_initial: false,
+            last_sequence: None,
+            stats: None,
         }
+    }
+
+    #[must_use]
+    pub(crate) fn with_stats(mut self, stats: Arc<CaptureStats>) -> Self {
+        self.stats = Some(stats);
+        self
     }
 
     /// Waits for the next frame.
@@ -136,13 +232,24 @@ impl FrameStream {
     /// `ironrdp-server`, which requires that no frame is lost on cancellation.
     /// The only await point is `watch::Receiver::changed`, which is cancel-safe.
     pub async fn next(&mut self) -> Result<Frame> {
-        if !self.delivered_initial {
+        let frame = if self.delivered_initial {
+            self.rx.changed().await?;
+            self.rx.borrow_and_update().clone()
+        } else {
             self.delivered_initial = true;
             self.rx.mark_unchanged();
-            return Ok(self.rx.borrow().clone());
+            self.rx.borrow().clone()
+        };
+
+        if let Some(stats) = &self.stats {
+            let skipped = self
+                .last_sequence
+                .map_or(0, |last| frame.sequence.saturating_sub(last).saturating_sub(1));
+            stats.record_delivered(skipped);
         }
-        self.rx.changed().await?;
-        Ok(self.rx.borrow_and_update().clone())
+        self.last_sequence = Some(frame.sequence);
+
+        Ok(frame)
     }
 }
 
@@ -154,6 +261,71 @@ impl Clone for FrameStream {
         Self {
             rx: self.rx.clone(),
             delivered_initial: false,
+            last_sequence: None,
+            stats: self.stats.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(sequence: u64) -> Frame {
+        let mut frame = test_pattern::render(16, 16, sequence);
+        frame.sequence = sequence;
+        frame
+    }
+
+    #[tokio::test]
+    async fn the_first_read_returns_the_current_frame_without_waiting() {
+        let (_tx, rx) = watch::channel(frame(7));
+        let mut stream = FrameStream::new(rx);
+        let first = stream.next().await.expect("first frame");
+        assert_eq!(first.sequence, 7);
+    }
+
+    #[tokio::test]
+    async fn a_clone_starts_over_so_a_new_client_sees_the_current_frame() {
+        let (_tx, rx) = watch::channel(frame(3));
+        let mut stream = FrameStream::new(rx);
+        stream.next().await.expect("first frame");
+
+        let mut fresh = stream.clone();
+        assert_eq!(fresh.next().await.expect("clone's first frame").sequence, 3);
+    }
+
+    #[tokio::test]
+    async fn coalesced_frames_are_counted_from_sequence_gaps() {
+        let stats = Arc::new(CaptureStats::default());
+        let (tx, rx) = watch::channel(frame(0));
+        let mut stream = FrameStream::new(rx).with_stats(Arc::clone(&stats));
+
+        stream.next().await.expect("frame 0");
+        // Three frames produced while the consumer was busy; only the last survives.
+        tx.send(frame(1)).expect("send");
+        tx.send(frame(2)).expect("send");
+        tx.send(frame(3)).expect("send");
+        let latest = stream.next().await.expect("latest frame");
+
+        assert_eq!(latest.sequence, 3, "the newest frame must win");
+        assert_eq!(stats.snapshot().coalesced, 2, "frames 1 and 2 were skipped");
+        assert_eq!(stats.snapshot().delivered, 2);
+    }
+
+    #[test]
+    fn average_frame_size_of_an_empty_session_is_zero_not_a_panic() {
+        let snapshot = CaptureStats::default().snapshot();
+        assert_eq!(snapshot.average_frame_bytes(), 0);
+    }
+
+    #[test]
+    fn rejection_logging_is_rate_limited() {
+        let stats = CaptureStats::default();
+        let logged = (0..1000).filter(|_| stats.should_log_rejection()).count();
+        assert!(
+            (5..20).contains(&logged),
+            "1000 bad frames should produce a handful of lines, got {logged}"
+        );
     }
 }

@@ -9,6 +9,9 @@
 //!   consumer that ignores stride produces a diagonal magenta shear rather
 //!   than a plausible-looking image;
 //! * **a frozen update path** — a seconds counter that must tick.
+//!
+//! Still used in wave 1 as the fallback when Screen Recording is refused
+//! (F-002.13) and as a reference image for `examples/dump_pattern.rs`.
 
 use std::time::{Duration, Instant};
 
@@ -18,37 +21,15 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tracing::debug;
 
+use super::canvas::{
+    BGRA_BACKGROUND, BGRA_BLACK, BGRA_BLUE, BGRA_GREEN, BGRA_PADDING, BGRA_RED, BGRA_WHITE, Canvas, padded_stride,
+};
 use super::{DisplayId, DisplayInfo, Frame, FrameSource, FrameStream, PixelFormat};
 
 pub const DEFAULT_WIDTH: u32 = 1280;
 pub const DEFAULT_HEIGHT: u32 = 720;
 
-/// Row alignment for the generated buffer, in bytes.
-const STRIDE_ALIGN: usize = 64;
-
-// Colours, written as BGRA bytes (ADR-0005).
-const BGRA_BACKGROUND: [u8; 4] = [0x20, 0x20, 0x20, 0xFF];
-const BGRA_RED: [u8; 4] = [0x00, 0x00, 0xFF, 0xFF];
-const BGRA_GREEN: [u8; 4] = [0x00, 0xFF, 0x00, 0xFF];
-const BGRA_BLUE: [u8; 4] = [0xFF, 0x00, 0x00, 0xFF];
-const BGRA_WHITE: [u8; 4] = [0xFF, 0xFF, 0xFF, 0xFF];
-const BGRA_BLACK: [u8; 4] = [0x00, 0x00, 0x00, 0xFF];
-/// Fills the row padding. Never visible unless stride handling is wrong.
-const BGRA_PADDING: [u8; 4] = [0xFF, 0x00, 0xFF, 0xFF];
-
 const MARKER_SIZE: u32 = 64;
-
-/// Computes the padded stride for a given width.
-///
-/// Guarantees `stride > width * bpp` so the stride path is exercised even for
-/// widths that happen to be naturally aligned (F-001.11). 1280 px is exactly
-/// such a width: `1280 * 4 = 5120` is already 64-byte aligned.
-#[must_use]
-pub fn padded_stride(width: u32, bpp: usize) -> usize {
-    let row = (width as usize).saturating_mul(bpp);
-    let aligned = row.div_ceil(STRIDE_ALIGN).saturating_mul(STRIDE_ALIGN);
-    aligned.saturating_add(STRIDE_ALIGN)
-}
 
 /// Renders one frame of the test pattern.
 ///
@@ -93,25 +74,7 @@ pub fn render(width: u32, height: u32, counter: u64) -> Frame {
     );
 
     // Seconds counter (AC-7).
-    let digits = counter.to_string();
-    let digit_h = height / 6;
-    let digit_w = digit_h / 2;
-    let thickness = (digit_h / 8).max(2);
-    let spacing = digit_w / 4;
-    let total_w = (digit_w + spacing) * digits.len() as u32;
-    let digits_x = (width.saturating_sub(total_w)) / 2;
-    let digits_y = bar_top + bar_height + height / 12;
-    for (i, ch) in digits.chars().enumerate() {
-        let value = ch.to_digit(10).unwrap_or(0) as u8;
-        let glyph = Glyph {
-            x: digits_x + (digit_w + spacing) * i as u32,
-            y: digits_y,
-            w: digit_w,
-            h: digit_h,
-            t: thickness,
-        };
-        canvas.seven_segment(glyph, value, BGRA_WHITE);
-    }
+    canvas.number(counter, bar_top + bar_height + height / 12, height / 6, BGRA_WHITE);
 
     Frame {
         width,
@@ -119,97 +82,8 @@ pub fn render(width: u32, height: u32, counter: u64) -> Frame {
         stride,
         format: PixelFormat::Bgra8,
         data: Bytes::from(buf),
+        sequence: 0,
         captured_at: Instant::now(),
-    }
-}
-
-/// Placement of one seven-segment digit: position, size and stroke thickness.
-#[derive(Debug, Clone, Copy)]
-struct Glyph {
-    x: u32,
-    y: u32,
-    w: u32,
-    h: u32,
-    t: u32,
-}
-
-struct Canvas<'a> {
-    buf: &'a mut [u8],
-    width: u32,
-    height: u32,
-    stride: usize,
-    bpp: usize,
-}
-
-impl Canvas<'_> {
-    /// Fills the entire allocation, padding bytes included.
-    fn fill(&mut self, colour: [u8; 4]) {
-        for chunk in self.buf.chunks_exact_mut(self.bpp) {
-            chunk.copy_from_slice(&colour);
-        }
-    }
-
-    fn put(&mut self, x: u32, y: u32, colour: [u8; 4]) {
-        if x >= self.width || y >= self.height {
-            return;
-        }
-        let offset = (y as usize) * self.stride + (x as usize) * self.bpp;
-        if let Some(px) = self.buf.get_mut(offset..offset + self.bpp) {
-            px.copy_from_slice(&colour);
-        }
-    }
-
-    fn rect(&mut self, x: u32, y: u32, w: u32, h: u32, colour: [u8; 4]) {
-        for dy in 0..h {
-            for dx in 0..w {
-                self.put(x.saturating_add(dx), y.saturating_add(dy), colour);
-            }
-        }
-    }
-
-    /// Draws one decimal digit as a seven-segment glyph.
-    ///
-    /// Segment order is the conventional `a b c d e f g`:
-    /// top, top-right, bottom-right, bottom, bottom-left, top-left, middle.
-    fn seven_segment(&mut self, glyph: Glyph, digit: u8, colour: [u8; 4]) {
-        let Glyph { x, y, w, h, t } = glyph;
-        const SEGMENTS: [[bool; 7]; 10] = [
-            [true, true, true, true, true, true, false],     // 0
-            [false, true, true, false, false, false, false], // 1
-            [true, true, false, true, true, false, true],    // 2
-            [true, true, true, true, false, false, true],    // 3
-            [false, true, true, false, false, true, true],   // 4
-            [true, false, true, true, false, true, true],    // 5
-            [true, false, true, true, true, true, true],     // 6
-            [true, true, true, false, false, false, false],  // 7
-            [true, true, true, true, true, true, true],      // 8
-            [true, true, true, true, false, true, true],     // 9
-        ];
-        let Some(on) = SEGMENTS.get(usize::from(digit)) else {
-            return;
-        };
-        let half = h / 2;
-        if on[0] {
-            self.rect(x, y, w, t, colour);
-        }
-        if on[1] {
-            self.rect(x + w.saturating_sub(t), y, t, half, colour);
-        }
-        if on[2] {
-            self.rect(x + w.saturating_sub(t), y + half, t, half, colour);
-        }
-        if on[3] {
-            self.rect(x, y + h.saturating_sub(t), w, t, colour);
-        }
-        if on[4] {
-            self.rect(x, y + half, t, half, colour);
-        }
-        if on[5] {
-            self.rect(x, y, t, half, colour);
-        }
-        if on[6] {
-            self.rect(x, y + half.saturating_sub(t / 2), w, t, colour);
-        }
     }
 }
 
@@ -287,22 +161,14 @@ impl FrameSource for TestPatternSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn stride_is_padded_beyond_the_row_width() {
-        // 1280 * 4 = 5120 is already 64-byte aligned; the pattern must still pad,
-        // otherwise wave 0 would never exercise the stride path (F-001.11).
-        assert_eq!(1280 * 4 % STRIDE_ALIGN, 0, "precondition for this test");
-        let stride = padded_stride(1280, 4);
-        assert!(stride > 1280 * 4, "stride {stride} must exceed the row width");
-        assert_eq!(stride % STRIDE_ALIGN, 0);
-    }
+    use crate::capture::canvas::STRIDE_ALIGN;
 
     #[test]
     fn buffer_is_large_enough_for_its_geometry() {
         let frame = render(DEFAULT_WIDTH, DEFAULT_HEIGHT, 0);
         assert_eq!(frame.data.len(), frame.required_len());
         assert!(frame.stride > DEFAULT_WIDTH as usize * 4);
+        assert_eq!(frame.stride % STRIDE_ALIGN, 0);
     }
 
     #[test]
@@ -347,14 +213,6 @@ mod tests {
             Some(BGRA_WHITE),
             "stride-aware indexing must hit the white marker"
         );
-    }
-
-    #[test]
-    fn padding_is_present_and_marked() {
-        let frame = render(DEFAULT_WIDTH, DEFAULT_HEIGHT, 0);
-        let row_bytes = DEFAULT_WIDTH as usize * 4;
-        let pad_start = row_bytes;
-        assert_eq!(&frame.data[pad_start..pad_start + 4], BGRA_PADDING);
     }
 
     #[test]

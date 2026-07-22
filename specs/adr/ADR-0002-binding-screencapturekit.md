@@ -89,15 +89,51 @@ traitem `FrameSource` (patrz `01-architecture.md`). Zamiana backendu = jeden pli
 Cztery majory w dwa miesiące. Mitygacja: pin `=8.0.1` + `Cargo.lock` w repo;
 bump wersji tylko świadomie, z przejrzeniem CHANGELOG-a.
 
-**Niepotwierdzone:** dokumentacja modułu `stream` (docs.rs 8.0.1) **nie wymienia**
-`SCStreamFrameInfo`, statusu klatki ani dirty rects / content rect / attachments.
-`objc2-screen-capture-kit` ma je na pewno, bo generuje całe API.
+**~~Niepotwierdzone: dirty rects.~~ ROZSTRZYGNIĘTE 2026-07-22** przy implementacji
+F-002. Dokumentacja docs.rs tego nie wymieniała, ale **źródło crate'a tak** —
+`CMSampleBufferSCExt` (`src/cm/sample_buffer.rs`) wystawia komplet atrybutów
+`SCStreamFrameInfo`:
 
-**Warunek rewizji tej decyzji:** jeżeli w Fali 3 (damage tracking) okaże się,
-że `screencapturekit` nie wystawia `SCStreamFrameInfoDirtyRects`, mamy dwie drogi:
-(a) własny diff klatek po stronie `encoder` (i tak potrzebny jako fallback),
-(b) przejście na `objc2-screen-capture-kit` w module `capture`.
-Decyzja wtedy → nowy ADR, bez zmian poza modułem `capture`.
+```rust
+pub trait CMSampleBufferSCExt {
+    fn frame_status(&self) -> Option<SCFrameStatus>;   // Complete/Idle/Blank/Suspended/…
+    fn display_time(&self) -> Option<u64>;
+    fn scale_factor(&self) -> Option<f64>;
+    fn content_scale(&self) -> Option<f64>;
+    fn content_rect(&self) -> Option<CGRect>;
+    fn bounding_rect(&self) -> Option<CGRect>;
+    fn screen_rect(&self) -> Option<CGRect>;
+    fn dirty_rects(&self) -> Option<Vec<CGRect>>;      // <-- damage od systemu
+    fn frame_info(&self) -> Option<FrameInfo>;         // wszystko w jednym FFI
+}
+```
+
+**Konsekwencje:**
+1. **Warunek rewizji nie zachodzi.** Nie ma powodu przechodzić na
+   `objc2-screen-capture-kit`. Decyzja zostaje.
+2. **F-004 (damage tracking) dostaje damage od systemu**, zamiast liczyć własny
+   diff klatek. To zmienia kształt tego speca: `dirty_rects()` jako źródło
+   podstawowe, własny diff co najwyżej jako fallback, gdy atrybut jest pusty.
+3. Fala 1 już korzysta z `frame_status()` — klatki `Idle`/`Blank` nie niosą
+   nowej treści i są pomijane, zamiast być kodowane i wysyłane bez potrzeby.
+
+## Pułapka buildu: Swift (odkryte przy F-002)
+
+Crate kompiluje most w Swifcie (`apple-cf`, `apple-metal`, sam `screencapturekit`).
+Ich build scripty emitują ścieżkę biblioteczną w układzie **pełnego Xcode**:
+`$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx`.
+Przy samych Command Line Tools ten katalog nie istnieje — biblioteki leżą
+w `$(xcode-select -p)/usr/lib/swift/macosx` — i link pada na
+`__swift_FORCE_LOAD_$_swiftCompatibility56 undefined`.
+
+Do tego binarka nie dostaje rpath do runtime'u Swifta, więc nawet po udanym
+linkowaniu każde uruchomienie kończy się
+`dyld: Library not loaded: @rpath/libswift_Concurrency.dylib`.
+
+**Rozwiązanie:** własny `build.rs` w repo pyta `xcode-select -p`, dokłada tę
+z dwóch ścieżek, która faktycznie istnieje, i dopisuje
+`-Wl,-rpath,/usr/lib/swift`. Działa i z Xcode, i z Command Line Tools — co jest
+istotne, bo CI ma to pierwsze, a maszyna deweloperska to drugie.
 
 ## Odrzucone alternatywy
 

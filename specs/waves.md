@@ -12,7 +12,7 @@ Dopiero wtedy zaczyna się następna fala.
 | Fala | Nazwa | Specy | Status |
 |---|---|---|---|
 | 0 | Szkielet | F-001 | **Verified** (2026-07-22) |
-| 1 | Żywy ekran | F-002 | Następna |
+| 1 | Żywy ekran | F-002 | **Implemented — czeka na weryfikację** |
 | 2 | Input | F-003, F-003a | Planned |
 | 3 | Jakość MVP | F-004…F-007 | Planned |
 | — | Backlog | F-1xx | Planned |
@@ -44,7 +44,7 @@ połącz–rozłącz. Zapis w `features/F-001-skeleton.md` §7.
 
 ---
 
-## Fala 1 — Żywy ekran  → spec `F-002-live-screen.md` (do napisania)
+## Fala 1 — Żywy ekran  → spec `F-002-live-screen.md`
 
 ScreenCaptureKit → strumień klatek → `Frame` → `BitmapUpdate` → klient.
 
@@ -97,9 +97,10 @@ osobną, pełną iterację, nie „przy okazji".
 płynność przy typowej pracy (przewijanie tekstu, przeglądarka) jest znośna;
 uśpienie i wybudzenie Maca nie zabija serwera.
 
-**Otwarta kwestia (ADR-0002):** czy `screencapturekit` wystawia
-`SCStreamFrameInfoDirtyRects`. Jeśli nie — własny diff klatek w `encoder`
-(i tak potrzebny jako fallback) albo zmiana bindingu.
+**Kwestia zamknięta w Fali 1 (ADR-0002):** `screencapturekit` **wystawia**
+`dirty_rects()` przez `CMSampleBufferSCExt`. F-004 bierze damage od systemu,
+a własny diff klatek zostaje najwyżej fallbackiem, gdy atrybut jest pusty.
+Zmiana bindingu niepotrzebna.
 
 ---
 
