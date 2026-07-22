@@ -52,6 +52,12 @@ pub struct Cli {
     /// Log level: error, warn, info, debug, trace [default: info]
     #[arg(long, value_name = "LEVEL")]
     pub log_level: Option<String>,
+
+    /// Serve the synthetic test pattern at the given size instead of the real
+    /// screen, e.g. `--test-pattern 5120x1440`. Diagnostic: it separates
+    /// "capture is wrong" from "the protocol path is wrong".
+    #[arg(long, value_name = "WIDTHxHEIGHT")]
+    pub test_pattern: Option<String>,
 }
 
 /// The same keys as [`Cli`], as they appear in the TOML file.
@@ -85,6 +91,8 @@ pub struct Config {
     pub display: u32,
     pub max_fps: u32,
     pub log_level: String,
+    /// `Some((width, height))` when the synthetic pattern was requested.
+    pub test_pattern: Option<(u32, u32)>,
 }
 
 impl Config {
@@ -115,6 +123,7 @@ impl Config {
                 .clone()
                 .or_else(|| file.log_level.clone())
                 .unwrap_or_else(|| DEFAULT_LOG_LEVEL.to_owned()),
+            test_pattern: cli.test_pattern.as_deref().map(parse_size).transpose()?,
         })
     }
 
@@ -131,6 +140,19 @@ impl Config {
     pub fn socket_addr(&self) -> std::net::SocketAddr {
         std::net::SocketAddr::new(self.bind_addr, self.port)
     }
+}
+
+/// Parses a `WIDTHxHEIGHT` string.
+fn parse_size(text: &str) -> Result<(u32, u32)> {
+    let (w, h) = text
+        .split_once(['x', 'X'])
+        .with_context(|| format!("`{text}` is not WIDTHxHEIGHT"))?;
+    let width: u32 = w.trim().parse().with_context(|| format!("bad width in `{text}`"))?;
+    let height: u32 = h.trim().parse().with_context(|| format!("bad height in `{text}`"))?;
+    if width == 0 || height == 0 {
+        anyhow::bail!("`{text}` has a zero dimension");
+    }
+    Ok((width, height))
 }
 
 /// `~/Library/Application Support/mac-rdp-server`, where the generated
@@ -191,6 +213,7 @@ mod tests {
             max_fps: Some(3),
             log_level: Some("trace".to_owned()),
             config: None,
+            test_pattern: None,
         };
         let file = FileConfig {
             bind_addr: Some("10.0.0.1".parse().expect("valid IP")),

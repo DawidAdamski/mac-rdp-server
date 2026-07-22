@@ -59,6 +59,14 @@ async fn main() -> Result<()> {
 /// Picks a frame source, degrading to an explanatory placeholder rather than
 /// failing when Screen Recording is refused (F-002.13).
 fn build_source(config: &Config) -> Result<Box<dyn FrameSource>> {
+    if let Some((width, height)) = config.test_pattern {
+        warn!(
+            width,
+            height, "serving the synthetic test pattern instead of the screen"
+        );
+        return Ok(Box::new(test_pattern::TestPatternSource::new(width, height)));
+    }
+
     if perms::ensure(Permission::ScreenRecording) == PermissionState::Denied {
         warn!("capturing the screen is not possible; serving the permission placeholder instead");
         return Ok(Box::new(PlaceholderSource::new(

@@ -13,6 +13,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
+use ironrdp_pdu::rdp::capability_sets::BitmapCodecs;
 use ironrdp_server::{RdpServer, TlsIdentityCtx};
 use tracing::info;
 
@@ -64,6 +65,16 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
         .with_tls(acceptor)
         .with_input_handler(handler)
         .with_display_handler(display)
+        // Advertise NO bitmap codecs, so the server stays on the plain RDP 6.0
+        // bitmap path that F-002 and ADR-0001 specify for this wave.
+        //
+        // This call is not optional. Without it the builder defaults to
+        // `server_codecs_capabilities(&[])`, which despite the empty slice means
+        // "the defaults" — RemoteFX, QOI and QOIZ. Any client that advertises one
+        // of those (every real client advertises RemoteFX) then gets Surface Bits
+        // instead of Bitmap Updates, and the result decodes to a fully black
+        // screen. Measured with `examples/probe_client`, see ADR-0006.
+        .with_bitmap_codecs(BitmapCodecs(Vec::new()))
         .build();
 
     info!(%bind_addr, "serving RDP over TLS");

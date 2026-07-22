@@ -3,7 +3,8 @@
 - **Fala:** 1
 - **Status:** Approved (2026-07-22)
 - **Data:** 2026-07-22
-- **ADR:** ADR-0002 (binding SCK), ADR-0005 (piksele/stride), ADR-0001 (silnik)
+- **ADR:** ADR-0002 (binding SCK), ADR-0005 (piksele/stride), ADR-0001 (silnik),
+  ADR-0006 (kodeki bitmap — dopisany po wykryciu czarnego ekranu)
 
 ## 1. Cel
 
@@ -33,6 +34,16 @@ Screen Recording jest komunikowany zrozumiale, nie objawia się czarnym ekranem.
 - **F-002.7** (SHOULD) Kursor POWINIEN być na razie wrysowany w klatkę
   (`showsCursor`), żeby użytkownik go widział. Prawdziwy kursor sprzętowy
   to F-005 (Fala 3), która to ustawienie wyłączy.
+
+### Kodowanie (dopisane 2026-07-22 po incydencie czarnego ekranu)
+
+- **F-002.22** (MUST) Serwer MUSI **jawnie** reklamować pustą listę kodeków
+  bitmap (`with_bitmap_codecs(BitmapCodecs(Vec::new()))`). Pominięcie tego
+  wywołania daje domyślne RemoteFX + QOI + QOIZ, a każdy prawdziwy klient
+  reklamuje RemoteFX — efektem jest **czarny ekran** (ADR-0006).
+- **F-002.23** (MUST) MUSI istnieć test integracyjny, który podnosi serwer,
+  łączy się prawdziwym klientem RDP **reklamującym RemoteFX** i asercjonuje,
+  że zdekodowane piksele nie są czarne. Test MUSI padać po cofnięciu F-002.22.
 
 ### Konwersja klatki
 
@@ -122,6 +133,9 @@ Screen Recording jest komunikowany zrozumiale, nie objawia się czarnym ekranem.
    macOS gaśnie (dowód, że strumień naprawdę został zatrzymany).
 10. **AC-10** Sesja przeżywa kilka minut bez narastania zużycia pamięci procesu
     (dowód, że koalescencja działa i klatki nie kolejkują się w pamięci).
+11. **AC-11** `cargo run --release --example probe_client -- 127.0.0.1 3389 - remotefx`
+    raportuje wyraźnie niezerowy odsetek niepustych pikseli. To jest maszynowa
+    wersja „widzę obraz", możliwa do wykonania bez człowieka i bez GUI.
 
 ## 5. Poza zakresem
 
