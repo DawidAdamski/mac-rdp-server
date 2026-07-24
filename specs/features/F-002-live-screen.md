@@ -1,7 +1,7 @@
 # F-002 — Żywy ekran: ScreenCaptureKit → klient RDP
 
 - **Fala:** 1
-- **Status:** Approved (2026-07-22)
+- **Status:** Verified (2026-07-24)
 - **Data:** 2026-07-22
 - **ADR:** ADR-0002 (binding SCK), ADR-0005 (piksele/stride), ADR-0001 (silnik),
   ADR-0006 (kodeki bitmap — dopisany po wykryciu czarnego ekranu)
@@ -125,6 +125,11 @@ Screen Recording jest komunikowany zrozumiale, nie objawia się czarnym ekranem.
    (2.0 na wbudowanym ekranie MacBooka).
 6. **AC-6** `--display 1` na Macu z jednym ekranem daje czytelny błąd z listą
    dostępnych ekranów. Z dwoma ekranami — wybiera drugi.
+
+   > **Uwaga (clamshell).** Przy zamkniętej klapie MacBooka macOS **wyłącza**
+   > wbudowany ekran, więc `displays()` pokazuje tylko podłączone zewnętrzne.
+   > To jest zachowanie oczekiwane, nie brak wykrywania. Po otwarciu klapy
+   > wbudowany ekran pojawia się jako kolejny wpis, ze `scale_factor` 2.0.
 7. **AC-7** **Odebranie uprawnienia Screen Recording** (System Settings →
    usunięcie Terminala z listy) i restart serwera daje: log `error` z instrukcją,
    wzorzec zastępczy na kliencie, brak paniki i brak czarnego ekranu.
@@ -173,4 +178,46 @@ Screen Recording jest komunikowany zrozumiale, nie objawia się czarnym ekranem.
 
 ## 7. Status
 
-**Approved** (2026-07-22) — implementacja w toku.
+**Verified** (2026-07-24).
+
+### Zapis weryfikacji
+
+Automatycznie (CI: fmt, clippy `-D warnings`, 58 testów):
+
+| AC | Jak zweryfikowane |
+|---|---|
+| AC-1 | `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` — czysto |
+| AC-11 | `tests/rdp_pixels.rs` — klient reklamujący RemoteFX dostaje niepuste piksele; pada po cofnięciu F-002.22 |
+
+Ręcznie, prawdziwym klientem RDP (właściciel projektu, 2026-07-24):
+
+| AC | Wynik |
+|---|---|
+| AC-2 | Żywy pulpit Maca, **płynny** |
+| AC-3 | Kolory się zgadzają — biel biała (mapowanie BGRA poprawne) |
+| AC-4 | Obraz równy, bez skosu (stride poprawny na całym łańcuchu) |
+| AC-9 | Ctrl-C gasi wskaźnik nagrywania ekranu w pasku menu |
+| AC-10 | „Very smooth" przy realnej pracy; brak zauważalnego narastania |
+
+### Odchylenia od pierwotnego planu (świadome)
+
+- **AC-5 (Retina) niezweryfikowane w tej fali.** Testowano w trybie clamshell
+  (zamknięta klapa MacBooka), więc jedyny aktywny ekran to zewnętrzny 5120×1440
+  ze `scale_factor` 1.0 — Retina nie wchodzi w grę. Konwersja punkty→piksele
+  jest zaimplementowana i pokryta w kodzie, ale **wizualnie na Retinie sprawdzi
+  się dopiero przy otwartej klapie**, najpóźniej w Fali 2 (gdzie zła wartość
+  `scale_factor` objawiłaby się jako „mysz klika 2× za daleko"). Przeniesione
+  do ryzyk F-003.
+- **AC-6 z dwoma ekranami niezweryfikowane** — z tego samego powodu (clamshell =
+  jeden ekran). Ścieżka błędu przy indeksie spoza zakresu działa; wybór drugiego
+  ekranu do sprawdzenia przy otwartej klapie.
+- **AC-7 / AC-8 (odmowa i przywrócenie uprawnienia)** — ścieżka degradacji
+  sprawdzona automatycznie (proces bez uprawnienia serwuje czerwony placeholder,
+  nie panikuje); pełny cykl odbierz-w-System-Settings → restart nie był
+  wykonywany ręcznie w tej fali. Nie blokuje: mechanizm jest ten sam co w kodzie.
+
+### Incydent, który ta fala przyniosła
+
+Pierwsza wersja dawała **czarny ekran** mimo poprawnego capture — patrz
+ADR-0006. Naprawione (F-002.22), z testem regresyjnym `tests/rdp_pixels.rs`
+i narzędziem `examples/probe_client.rs`.

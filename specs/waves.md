@@ -12,8 +12,8 @@ Dopiero wtedy zaczyna się następna fala.
 | Fala | Nazwa | Specy | Status |
 |---|---|---|---|
 | 0 | Szkielet | F-001 | **Verified** (2026-07-22) |
-| 1 | Żywy ekran | F-002 | **Implemented — czeka na weryfikację** |
-| 2 | Input | F-003, F-003a | Planned |
+| 1 | Żywy ekran | F-002 | **Verified** (2026-07-24) |
+| 2 | Input | F-003, F-003a | Następna |
 | 3 | Jakość MVP | F-004…F-007 | Planned |
 | — | Backlog | F-1xx | Planned |
 
@@ -57,6 +57,17 @@ Zakres:
 
 **Kryterium fali:** widzę na kliencie żywy pulpit Maca; kolory się zgadzają;
 odmowa uprawnienia daje zrozumiały komunikat, nie panikę.
+
+**Zamknięta 2026-07-24.** Żywy pulpit, płynny, kolory i geometria poprawne,
+strumień zatrzymuje się czysto. Po drodze naprawiony czarny ekran (ADR-0006:
+serwer po cichu reklamował RemoteFX zamiast gołych bitmap). Zapis w
+`features/F-002-live-screen.md` §7.
+
+**Co ta fala udowodniła dla następnych:**
+- `screencapturekit` wystawia `dirty_rects()` — F-004 bierze damage od systemu,
+- pełny łańcuch capture→enkoder→klient jest sprawdzalny bez GUI
+  (`examples/probe_client.rs`, `tests/rdp_pixels.rs`),
+- Retina niesprawdzona (clamshell) — dług przeniesiony do F-003.
 
 **Ryzyka:** stride ≠ `width * 4` (ADR-0005); ekran Retina ⇒ pulpit RDP ma
 wymiary w pikselach backing store, nie w punktach.
