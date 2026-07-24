@@ -113,11 +113,7 @@ impl CgEventSink {
             }
             PointerEvent::Button { button, pressed } => {
                 self.buttons.set(button, pressed);
-                let (event_type, cg_button) = button_event(button, pressed);
-                if let Ok(ev) = CGEvent::new_mouse_event(source.clone(), event_type, self.cursor, cg_button) {
-                    if let Some(number) = other_button_number(button) {
-                        ev.set_integer_value_field(EventField::MOUSE_EVENT_BUTTON_NUMBER, number);
-                    }
+                if let Some(ev) = self.build_button_event(source, button, pressed) {
                     self.post(&ev);
                 }
             }
@@ -176,6 +172,23 @@ impl CgEventSink {
         }
     }
 
+    /// Builds a mouse button event at the current cursor.
+    ///
+    /// Split out so the button-number wiring can be unit-tested against a real
+    /// `CGEvent` without posting it — that wiring is exactly what was wrong for
+    /// the middle button.
+    fn build_button_event(&self, source: &CGEventSource, button: MouseButton, pressed: bool) -> Option<CGEvent> {
+        let (event_type, cg_button) = button_event(button, pressed);
+        let ev = CGEvent::new_mouse_event(source.clone(), event_type, self.cursor, cg_button).ok()?;
+        // For the "other" buttons macOS keys off MOUSE_EVENT_BUTTON_NUMBER, not
+        // the CGMouseButton, so it must be set explicitly — including for the
+        // middle button (number 2), which otherwise does nothing (F-003.7).
+        if let Some(number) = other_button_number(button) {
+            ev.set_integer_value_field(EventField::MOUSE_EVENT_BUTTON_NUMBER, number);
+        }
+        Some(ev)
+    }
+
     /// Increments the drop counter and warns at power-of-two milestones.
     fn note_dropped(&mut self) {
         self.dropped = self.dropped.saturating_add(1);
@@ -226,13 +239,15 @@ fn button_event(button: MouseButton, pressed: bool) -> (CGEventType, CGMouseButt
     }
 }
 
-/// The button number for the extra mouse buttons, which macOS distinguishes by
-/// `MOUSE_EVENT_BUTTON_NUMBER` rather than by `CGMouseButton` (F-003.7).
+/// The macOS button number for the "other" (non-left/right) mouse buttons,
+/// which macOS reads from `MOUSE_EVENT_BUTTON_NUMBER` rather than from
+/// `CGMouseButton` (F-003.7). Left and right carry their number implicitly.
 fn other_button_number(button: MouseButton) -> Option<i64> {
     match button {
+        MouseButton::Middle => Some(2),
         MouseButton::Back => Some(3),
         MouseButton::Forward => Some(4),
-        _ => None,
+        MouseButton::Left | MouseButton::Right => None,
     }
 }
 
@@ -275,9 +290,43 @@ mod tests {
     }
 
     #[test]
-    fn back_and_forward_get_distinct_button_numbers() {
+    fn other_buttons_get_the_right_numbers() {
+        // The middle-button regression: it must be number 2, not None.
+        assert_eq!(other_button_number(MouseButton::Middle), Some(2));
         assert_eq!(other_button_number(MouseButton::Back), Some(3));
         assert_eq!(other_button_number(MouseButton::Forward), Some(4));
         assert_eq!(other_button_number(MouseButton::Left), None);
+        assert_eq!(other_button_number(MouseButton::Right), None);
+    }
+
+    #[test]
+    fn middle_button_event_carries_button_number_two() {
+        // Builds a real CGEvent (Accessibility not required to *create* one) and
+        // checks the fields, without ever posting it. This is the exact wiring
+        // that was wrong: a middle click with no button number does nothing.
+        let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
+            // No windowing environment (headless CI) — construction is covered
+            // by the pure test above; skip the live-object check.
+            return;
+        };
+        let sink = CgEventSink {
+            source: None,
+            geometry: ScreenGeometry::new(0.0, 0.0, 1.0),
+            modifiers: Modifiers::default(),
+            buttons: Buttons::default(),
+            cursor: CGPoint::new(10.0, 20.0),
+            dropped: 0,
+        };
+
+        let ev = sink
+            .build_button_event(&source, MouseButton::Middle, true)
+            .expect("build middle-button event");
+        assert_eq!(ev.get_type() as u32, CGEventType::OtherMouseDown as u32);
+        assert_eq!(ev.get_integer_value_field(EventField::MOUSE_EVENT_BUTTON_NUMBER), 2);
+
+        let up = sink
+            .build_button_event(&source, MouseButton::Middle, false)
+            .expect("build middle-button release");
+        assert_eq!(up.get_type() as u32, CGEventType::OtherMouseUp as u32);
     }
 }
