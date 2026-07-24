@@ -1,7 +1,7 @@
 # F-003 — Input: sterowanie myszą i klawiaturą
 
 - **Fala:** 2
-- **Status:** Draft
+- **Status:** Approved (2026-07-24)
 - **Data:** 2026-07-24
 - **ADR:** ADR-0003 (CGEvent), ADR-0001 (silnik)
 - **Powiązane:** F-003a (mapowanie klawiatury — osobny spec, bo to najtrudniejsza część)
@@ -171,4 +171,4 @@ Sprawdzane ręcznie prawdziwym klientem.
 
 ## 8. Status
 
-**Draft** — czeka na approve właściciela projektu.
+**Approved** (2026-07-24) — implementacja w toku.

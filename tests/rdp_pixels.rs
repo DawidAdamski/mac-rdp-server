@@ -62,7 +62,7 @@ fn non_black_fraction(codecs: BitmapCodecs) -> f64 {
     runtime.block_on(async move {
         let mut source = TestPatternSource::new(PATTERN_WIDTH, PATTERN_HEIGHT);
         let stream = source.start().await.expect("start the frame source");
-        let dispatcher = input::spawn(Box::new(LoggingSink::new()), 16);
+        let dispatcher = input::spawn(|| Box::new(LoggingSink::new()), 16);
 
         let local = tokio::task::LocalSet::new();
         local

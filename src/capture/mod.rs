@@ -101,6 +101,11 @@ pub struct DisplayInfo {
     pub height_px: u32,
     /// 2.0 on Retina. Input needs this to convert RDP pixels to macOS points (ADR-0003).
     pub scale_factor: f64,
+    /// Top-left of the display in the global macOS **point** space. Zero for the
+    /// primary display; non-zero for secondary displays. Input needs it so a
+    /// click at desktop (0,0) lands on this display, not the primary (F-003.6).
+    pub origin_x: f64,
+    pub origin_y: f64,
     pub name: String,
 }
 

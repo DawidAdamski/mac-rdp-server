@@ -120,7 +120,7 @@ async fn server_negotiates_x224_then_completes_tls() {
 
     let mut source = TestPatternSource::new(320, 240);
     let stream = source.start().await.expect("start frame source");
-    let dispatcher = input::spawn(Box::new(LoggingSink::new()), 16);
+    let dispatcher = input::spawn(|| Box::new(LoggingSink::new()), 16);
 
     // `RdpServer::run` returns a `!Send` future (it holds `Rc`s across awaits),
     // so it cannot go through `tokio::spawn` — it needs a LocalSet.

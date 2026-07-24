@@ -40,6 +40,33 @@ i oszczędza wciągnięcie całego drugiego drzewa bindingów tylko po dwa boole
 Jeśli `perms` urośnie, przechodzimy na `objc2-core-graphics` +
 `objc2-application-services` i piszemy nowy ADR.
 
+## Odkryte przy implementacji F-003 (2026-07-24)
+
+- **`perms` deklaruje 3 symbole, nie 4.** `AXIsProcessTrustedWithOptions`
+  wymagałaby budowania `CFDictionary` (klucz „prompt"), więc na razie tylko
+  `AXIsProcessTrusted` (sprawdzenie bez dialogu). Dla Screen Recording działa
+  para preflight/request. Prompt dla Accessibility zostaje na później, jeśli
+  będzie potrzebny.
+
+- **`CGEventSource` jest `!Send`** (trzyma `NonNull`). To zmienia decyzję
+  wątkową z Fali 0: wstrzykiwanie **nie może** biec na zadaniu Tokio (które
+  migruje między wątkami roboczymi). Zamiast tego `input::spawn` uruchamia
+  **dedykowany wątek OS**, buduje sink na nim i czyta z bounded kanału przez
+  `blocking_recv`. Konsekwencja dla `InputSink`: trait **nie ma** bounda `Send`,
+  a `spawn` bierze **fabrykę** `FnOnce() -> Box<dyn InputSink>` (fabryka jest
+  `Send`, sam sink już nie musi). Bounded kanał i zasada „handler tylko
+  konwertuje + `try_send`" z Fali 0 zostają.
+
+- **Źródło zdarzeń:** `CGEventSourceStateID::HIDSystemState`, `post` na
+  `CGEventTapLocation::HID`. Do zrewidowania, gdyby modyfikatory zachowywały się
+  źle (wtedy `CombinedSessionState`).
+
+- **Konstanty duplikowane, ale pilnowane testem.** `keymap.rs` (kody klawiszy)
+  i `state.rs` (bity `CGEventFlags`) mają własne stałe, żeby były czyste
+  i testowalne bez macOS. Test w `cgevent.rs` asercjuje, że nadal równają się
+  wartościom z `core-graphics` — bump wersji, który je przenumeruje, wywali CI,
+  zamiast po cichu wstrzykiwać zły klawisz.
+
 ## Konsekwencje i znane pułapki (do rozpisania w specu F-003)
 
 1. **Współrzędne.** `MouseEvent::Move { x: u16, y: u16 }` jest w przestrzeni

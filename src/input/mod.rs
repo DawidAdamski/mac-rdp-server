@@ -4,7 +4,10 @@
 //! that the RDP engine can be replaced without touching the injection code
 //! (`specs/01-architecture.md` §1).
 
+pub mod cgevent;
+pub mod keymap;
 pub mod logging;
+pub mod state;
 
 use anyhow::Result;
 use tokio::sync::mpsc;
@@ -70,9 +73,13 @@ pub enum InputEvent {
 
 /// Destination for input events.
 ///
-/// Implementations: [`logging::LoggingSink`] (wave 0), `CgEventSink`
-/// (wave 2, ADR-0003).
-pub trait InputSink: Send {
+/// Implementations: [`logging::LoggingSink`] (wave 0),
+/// [`cgevent::CgEventSink`] (wave 2, ADR-0003).
+///
+/// Note there is **no `Send` bound**. `CgEventSink` holds a `CGEventSource`,
+/// which is `!Send`, so a sink is built and lives on the dedicated injection
+/// thread (see [`spawn`]) and is never moved between threads.
+pub trait InputSink {
     fn pointer(&mut self, ev: PointerEvent) -> Result<()>;
     fn key(&mut self, ev: KeyEvent) -> Result<()>;
 }
@@ -120,23 +127,39 @@ impl InputDispatcher {
     }
 }
 
-/// Spawns the task that drains the queue into `sink`, returning the dispatcher
-/// to hand to the RDP session.
-pub fn spawn(mut sink: Box<dyn InputSink>, capacity: usize) -> InputDispatcher {
+/// Spawns the injection worker and returns the dispatcher to hand to the RDP
+/// session.
+///
+/// The sink is built by `make_sink` **on a dedicated OS thread**, not a Tokio
+/// task, and stays there for its whole life. This is required, not stylistic:
+/// `CGEventSource` is `!Send`, so it cannot be created on one thread and used
+/// on another, and a Tokio task may migrate between worker threads. The thread
+/// drains the bounded channel with `blocking_recv`.
+///
+/// `make_sink` runs on the worker thread, so a failure to acquire the injection
+/// backend (e.g. no Accessibility) is handled inside the sink, not here.
+pub fn spawn<F>(make_sink: F, capacity: usize) -> InputDispatcher
+where
+    F: FnOnce() -> Box<dyn InputSink> + Send + 'static,
+{
     let (tx, mut rx) = mpsc::channel(capacity);
 
-    tokio::spawn(async move {
-        while let Some(event) = rx.recv().await {
-            let result = match event {
-                InputEvent::Pointer(ev) => sink.pointer(ev),
-                InputEvent::Key(ev) => sink.key(ev),
-            };
-            if let Err(error) = result {
-                warn!(?error, "input sink rejected an event");
+    std::thread::Builder::new()
+        .name("input-injection".to_owned())
+        .spawn(move || {
+            let mut sink = make_sink();
+            while let Some(event) = rx.blocking_recv() {
+                let result = match event {
+                    InputEvent::Pointer(ev) => sink.pointer(ev),
+                    InputEvent::Key(ev) => sink.key(ev),
+                };
+                if let Err(error) = result {
+                    warn!(?error, "input sink rejected an event");
+                }
             }
-        }
-        info!("input queue closed");
-    });
+            info!("input queue closed");
+        })
+        .expect("spawn input-injection thread");
 
     InputDispatcher::new(tx)
 }
@@ -176,7 +199,8 @@ mod tests {
         }
 
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let mut dispatcher = spawn(Box::new(Collector(std::sync::Arc::clone(&seen))), 8);
+        let collector = Collector(std::sync::Arc::clone(&seen));
+        let mut dispatcher = spawn(move || Box::new(collector) as Box<dyn InputSink>, 8);
 
         dispatcher.send(InputEvent::Pointer(PointerEvent::MoveAbsolute { x: 7, y: 9 }));
         dispatcher.send(InputEvent::Key(KeyEvent::Unicode { ch: 65, pressed: true }));

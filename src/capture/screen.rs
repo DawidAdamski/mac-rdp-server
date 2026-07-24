@@ -223,15 +223,7 @@ impl ScreenCaptureKitSource {
             .with_excluding_windows(&[])
             .build();
 
-        let (width_px, height_px, scale_factor) = pixel_geometry(&filter, sc_display);
-
-        let selected = DisplayInfo {
-            id: DisplayId(sc_display.display_id()),
-            width_px,
-            height_px,
-            scale_factor,
-            name: format!("Display {}", sc_display.display_id()),
-        };
+        let selected = display_info(&filter, sc_display);
 
         let displays = sc_displays
             .iter()
@@ -240,14 +232,7 @@ impl ScreenCaptureKitSource {
                     .with_display(d)
                     .with_excluding_windows(&[])
                     .build();
-                let (w, h, scale) = pixel_geometry(&f, d);
-                DisplayInfo {
-                    id: DisplayId(d.display_id()),
-                    width_px: w,
-                    height_px: h,
-                    scale_factor: scale,
-                    name: format!("Display {}", d.display_id()),
-                }
+                display_info(&f, d)
             })
             .collect();
 
@@ -266,6 +251,24 @@ impl ScreenCaptureKitSource {
     #[must_use]
     pub fn stats(&self) -> Arc<CaptureStats> {
         Arc::clone(&self.stats)
+    }
+}
+
+/// Builds a [`DisplayInfo`] for one display, including its point-space origin.
+///
+/// The origin comes from `SCDisplay::frame()` (in points) — needed so input can
+/// map desktop pixels onto the right display in a multi-monitor layout (F-003.6).
+fn display_info(filter: &SCContentFilter, display: &SCDisplay) -> DisplayInfo {
+    let (width_px, height_px, scale_factor) = pixel_geometry(filter, display);
+    let frame = display.frame();
+    DisplayInfo {
+        id: DisplayId(display.display_id()),
+        width_px,
+        height_px,
+        scale_factor,
+        origin_x: frame.origin.x,
+        origin_y: frame.origin.y,
+        name: format!("Display {}", display.display_id()),
     }
 }
 

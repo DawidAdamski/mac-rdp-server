@@ -125,6 +125,8 @@ impl FrameSource for PlaceholderSource {
             width_px: self.width,
             height_px: self.height,
             scale_factor: 1.0,
+            origin_x: 0.0,
+            origin_y: 0.0,
             name: format!("placeholder ({:?})", self.kind),
         }])
     }

@@ -1,7 +1,7 @@
 //! `mac-rdp-server` — RDP server for macOS.
 //!
-//! Wave 1 (F-002): serves the live Mac desktop over TLS, with client input
-//! logged rather than injected. See `specs/` for the full plan.
+//! Wave 2 (F-003): serves the live Mac desktop over TLS and injects client
+//! mouse and keyboard input via CGEvent. See `specs/` for the full plan.
 
 use anyhow::{Context as _, Result};
 use clap::Parser as _;
@@ -12,7 +12,9 @@ use mac_rdp_server::capture::screen::ScreenCaptureKitSource;
 use mac_rdp_server::capture::test_pattern;
 use mac_rdp_server::capture::{FrameSource, FrameStream};
 use mac_rdp_server::config::{Cli, Config};
+use mac_rdp_server::input::cgevent::CgEventSink;
 use mac_rdp_server::input::logging::LoggingSink;
+use mac_rdp_server::input::state::ScreenGeometry;
 use mac_rdp_server::perms::{Permission, PermissionState};
 use mac_rdp_server::{input, perms, session, tls};
 
@@ -36,6 +38,8 @@ async fn main() -> Result<()> {
     let mut source = build_source(&config)?;
     log_displays(source.as_ref());
 
+    let geometry = selected_geometry(source.as_ref(), config.display);
+
     let stream = source.start().await.context("starting the frame source")?;
     // Read the size only after starting: ScreenCaptureKitSource corrects it
     // from the first real frame, which is the only size guaranteed to match
@@ -43,7 +47,18 @@ async fn main() -> Result<()> {
     let (width, height) = source.desktop_size();
     info!(width, height, "desktop size");
 
-    let dispatcher = input::spawn(Box::new(LoggingSink::new()), input::DEFAULT_QUEUE_CAPACITY);
+    // The sink is built on the injection thread because `CGEventSource` is
+    // `!Send` (ADR-0003) — hence a factory, not a value.
+    let dispatcher = input::spawn(
+        move || match CgEventSink::new(geometry) {
+            Ok(sink) => Box::new(sink) as Box<dyn input::InputSink>,
+            Err(error) => {
+                warn!(?error, "falling back to logging input sink");
+                Box::new(LoggingSink::new())
+            }
+        },
+        input::DEFAULT_QUEUE_CAPACITY,
+    );
     let result = serve(&config, stream, width, height, dispatcher).await;
 
     if let Err(error) = source.stop().await {
@@ -81,6 +96,17 @@ fn build_source(config: &Config) -> Result<Box<dyn FrameSource>> {
     let source =
         ScreenCaptureKitSource::new(config.display, config.max_fps).context("initialising ScreenCaptureKit capture")?;
     Ok(Box::new(source))
+}
+
+/// Picks the geometry of the display being captured, for input coordinate
+/// mapping. Falls back to a 1:1 origin-zero mapping if enumeration fails.
+fn selected_geometry(source: &dyn FrameSource, index: u32) -> ScreenGeometry {
+    let displays = source.displays().unwrap_or_default();
+    let chosen = displays.get(index as usize).or_else(|| displays.first());
+    match chosen {
+        Some(d) => ScreenGeometry::new(d.origin_x, d.origin_y, d.scale_factor),
+        None => ScreenGeometry::new(0.0, 0.0, 1.0),
+    }
 }
 
 fn log_displays(source: &dyn FrameSource) {
