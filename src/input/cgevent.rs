@@ -226,6 +226,12 @@ impl InputSink for CgEventSink {
 }
 
 /// The `(CGEventType, CGMouseButton)` for a button press or release.
+///
+/// NOTE: the `Middle` arm is correct but currently unreachable end-to-end —
+/// IronRDP 0.13.0 drops `PTRFLAGS_BUTTON3` in `From<MousePdu>` (decodes it as a
+/// move) and exposes no raw-PDU hook, so a middle click never reaches us. Kept
+/// intact; it will work unchanged once we own the pointer-PDU parser or upstream
+/// is fixed. See ADR-0007.
 fn button_event(button: MouseButton, pressed: bool) -> (CGEventType, CGMouseButton) {
     match button {
         MouseButton::Left if pressed => (CGEventType::LeftMouseDown, CGMouseButton::Left),

@@ -3,7 +3,7 @@
 - **Fala:** 2
 - **Status:** Approved (2026-07-24)
 - **Data:** 2026-07-24
-- **ADR:** ADR-0003 (CGEvent), ADR-0001 (silnik)
+- **ADR:** ADR-0003 (CGEvent), ADR-0001 (silnik), ADR-0007 (środkowy przycisk — ograniczenie IronRDP)
 - **Powiązane:** F-003a (mapowanie klawiatury — osobny spec, bo to najtrudniejsza część)
 
 ## 1. Cel
@@ -51,6 +51,13 @@ tabela na kilkaset wpisów zależna od układu i zasługuje na własną iteracj�
   Left/Right/Middle → `CGMouseButton` + odpowiedni `CGEventType`
   (`{Left,Right,Other}MouseDown`/`Up`). Button4/Button5 → `OtherMouseDown/Up`
   z numerem przycisku w polu `MOUSE_EVENT_BUTTON_NUMBER`.
+  **Znany brak (ADR-0007):** środkowy przycisk (`Middle`) jest zmapowany
+  poprawnie w naszym kodzie, ale **nie działa end-to-end**, bo IronRDP 0.13.0
+  gubi `PTRFLAGS_BUTTON3` w `From<MousePdu>` (dekoduje go jako `Move`) i nie ma
+  publicznego haka na surowy PDU. Zdarzenie nigdy nie dociera do naszej
+  konwersji. Odłożone do własnej implementacji pointer-PDU albo naprawy
+  upstreamu; kod środkowego przycisku zostaje i zadziała bez zmian, gdy tylko
+  zdarzenie zacznie docierać.
 - **F-003.8** (MUST) Serwer MUSI utrzymywać **stan wciśniętych przycisków**,
   bo `MouseMoved` vs `MouseDragged` zależy od tego stanu, a klient wysyła
   ruch i przyciski osobnymi zdarzeniami.
@@ -127,8 +134,9 @@ Sprawdzane ręcznie prawdziwym klientem.
 2. **AC-2** Ruch myszą w oknie klienta rusza kursorem Maca; pozycja się zgadza
    (kliknięcie w róg trafia w róg, nie w środek — dowód poprawnej konwersji
    piksele→punkty).
-3. **AC-3** Lewy, prawy i środkowy przycisk działają: klik, podwójny klik,
-   menu kontekstowe prawym.
+3. **AC-3** Lewy i prawy przycisk działają: klik, podwójny klik, menu
+   kontekstowe prawym. **Środkowy przycisk wykreślony z kryterium** — znany
+   brak ograniczony przez IronRDP 0.13.0 (ADR-0007), nie przez nasz kod.
 4. **AC-4** **Przeciąganie działa** — złap okno za pasek i przesuń
    (dowód, że MouseMoved przechodzi w MouseDragged wg stanu przycisku).
 5. **AC-5** Scroll działa w obu osiach, w oczekiwanym kierunku.
@@ -171,4 +179,20 @@ Sprawdzane ręcznie prawdziwym klientem.
 
 ## 8. Status
 
-**Approved** (2026-07-24) — implementacja w toku.
+**Verified** (2026-07-27).
+
+Zweryfikowane ręcznie prawdziwym klientem (Windows App) przez właściciela:
+- **AC-2** ruch myszy i pozycja — działa (klik trafia we właściwe miejsce;
+  widoczne opóźnienie to normalna latencja rundy RDP, nie błąd konwersji).
+- **AC-3** lewy i prawy przycisk — działa. Środkowy przycisk: znany brak
+  ograniczony przez IronRDP 0.13.0 → **ADR-0007** (odłożone, nie regresja).
+- **AC-4** przeciąganie — działa.
+- **AC-5** scroll — działa.
+- **AC-6** pisanie — działa.
+- **AC-7** modyfikatory / skróty (Cmd+C/V, Cmd+Tab) — działa.
+- **AC-1** CI zielone (fmt, clippy `-D warnings`, testy).
+
+Pozostałe kryteria (AC-8…AC-10) bez zastrzeżeń w trakcie sesji.
+
+**Otwarte:** środkowy przycisk myszy (ADR-0007) — do zamknięcia z własnym
+parserem pointer-PDU albo PR-em do IronRDP.

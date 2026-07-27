@@ -13,7 +13,7 @@ Dopiero wtedy zaczyna się następna fala.
 |---|---|---|---|
 | 0 | Szkielet | F-001 | **Verified** (2026-07-22) |
 | 1 | Żywy ekran | F-002 | **Verified** (2026-07-24) |
-| 2 | Input | F-003, F-003a | **Approved — w implementacji** |
+| 2 | Input | F-003, F-003a | **F-003 Verified** (2026-07-27); F-003a — do decyzji |
 | 3 | Jakość MVP | F-004…F-007 | Planned |
 | — | Backlog | F-1xx | Planned |
 
