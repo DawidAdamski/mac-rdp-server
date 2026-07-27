@@ -150,6 +150,10 @@ Potwierdzone osobno: **reconnect przy zdrowym capture działa** (trzy pod rząd,
 ## 8. Status
 
 **Approved** (2026-07-27) — z zakresem pierwszej iteracji poniżej.
+**Iteracja 1 zaimplementowana** (2026-07-27, commit „F-007.1/.2/.3…") —
+czeka na ręczną weryfikację właściciela (AC-2, AC-3, AC-5, AC-6, AC-7).
+CI zielone: 81 testów jednostkowych (w tym backoff), test 3 reconnectów
+(`repeated_reconnects_each_see_the_picture`), clippy `-D warnings`.
 
 ### Zakres iteracji 1 (2026-07-27, decyzja właściciela)
 
