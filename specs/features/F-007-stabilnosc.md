@@ -149,4 +149,23 @@ Potwierdzone osobno: **reconnect przy zdrowym capture działa** (trzy pod rząd,
 
 ## 8. Status
 
-**Draft** — czeka na approve właściciela projektu.
+**Approved** (2026-07-27) — z zakresem pierwszej iteracji poniżej.
+
+### Zakres iteracji 1 (2026-07-27, decyzja właściciela)
+
+Implementujemy **rdzeń odporności strumienia**, bo dokładnie leczy zgłoszony
+incydent z klapą (reconfiguracja unieważnia `SCContentFilter`, strumień oddaje
+próbki bez obrazu):
+
+- **W tej iteracji:** F-007.1, F-007.2, F-007.3, F-007.5, F-007.8, F-007.9,
+  F-007.10, F-007.11, F-007.12. Odtworzenie `SCStream` dla **tego samego**
+  ekranu, backoff, rate-limit logów, sleep/wake, testy.
+- **Odłożone do F-006 (osobna iteracja):** F-007.4, F-007.4a, F-007.6,
+  F-007.6a, F-007.7 — przełączanie na inny ekran i skalowanie/kadrowanie do
+  rozmiaru pulpitu wciągają dynamiczny resize sesji (F-006), którego nie ma
+  jeszcze jako speca. Do tego czasu: jeśli łapany ekran **zniknie na trwałe**,
+  serwujemy placeholder i czekamy na jego powrót (spójne z §6 „Poza zakresem").
+
+Kryteria akceptacji odnoszące się do przełączania ekranów (AC-4 w części
+skalowania) domykają się dopiero z F-006; iteracja 1 domyka AC-1, AC-2, AC-3,
+AC-5, AC-6, AC-7.

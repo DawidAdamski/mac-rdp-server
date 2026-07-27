@@ -15,18 +15,26 @@ use std::time::{Duration, Instant};
 use anyhow::{Context as _, Result, anyhow, bail};
 use bytes::Bytes;
 use screencapturekit::cm::{CMSampleBuffer, CMSampleBufferExt as _, CMSampleBufferSCExt as _, SCFrameStatus};
+use screencapturekit::error::SCError;
 use screencapturekit::shareable_content::{SCDisplay, SCShareableContent, SCShareableContentInfo};
 use screencapturekit::stream::configuration::{PixelFormat as ScPixelFormat, SCStreamConfiguration};
 use screencapturekit::stream::content_filter::SCContentFilter;
+use screencapturekit::stream::delegate_trait::SCStreamDelegateTrait;
 use screencapturekit::stream::output_trait::SCStreamOutputTrait;
 use screencapturekit::stream::output_type::SCStreamOutputType;
 use screencapturekit::stream::sc_stream::SCStream;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, trace, warn};
 
+use super::backoff::Backoff;
 use super::placeholder::{self, Placeholder};
 use super::{CaptureStats, DisplayId, DisplayInfo, Frame, FrameSource, FrameStream, PixelFormat};
+
+/// Backoff bounds for stream recovery (F-007.3): quick first retry, capped so a
+/// permanently missing display settles instead of spinning.
+const RECOVERY_MIN_BACKOFF: Duration = Duration::from_millis(500);
+const RECOVERY_MAX_BACKOFF: Duration = Duration::from_secs(5);
 
 /// How many frames ScreenCaptureKit may buffer. Low, because we coalesce
 /// anyway and a deep queue only adds latency.
@@ -182,6 +190,22 @@ impl SCStreamOutputTrait for FrameHandler {
     }
 }
 
+/// Watches one `SCStream` for unexpected death and signals the supervisor.
+///
+/// `did_stop_with_error` is ScreenCaptureKit's only stop notification (F-007.1)
+/// and fires on the framework's own thread, so it MUST NOT block: it only sends
+/// on an unbounded channel and returns. A *clean* `stop_capture` we requested is
+/// deliberately not reported here, so our own shutdown never triggers recovery.
+struct StreamDelegate {
+    death_tx: mpsc::UnboundedSender<String>,
+}
+
+impl SCStreamDelegateTrait for StreamDelegate {
+    fn did_stop_with_error(&self, error: SCError) {
+        let _ = self.death_tx.send(error.to_string());
+    }
+}
+
 /// Captures a display with ScreenCaptureKit.
 pub struct ScreenCaptureKitSource {
     displays: Vec<DisplayInfo>,
@@ -191,9 +215,13 @@ pub struct ScreenCaptureKitSource {
     /// Geometry actually observed on the first frame; falls back to the
     /// configured estimate until one arrives.
     desktop: (u32, u32),
-    stream: Option<SCStream>,
     stats: Arc<CaptureStats>,
     stats_task: Option<JoinHandle<()>>,
+    /// Owns the live `SCStream` and rebuilds it after an unexpected stop
+    /// (F-007.2). `None` until [`FrameSource::start`] runs.
+    supervisor: Option<JoinHandle<()>>,
+    /// Tells the supervisor to stop the stream cleanly and exit.
+    stop_tx: Option<oneshot::Sender<()>>,
 }
 
 impl ScreenCaptureKitSource {
@@ -242,9 +270,10 @@ impl ScreenCaptureKitSource {
             selected,
             filter,
             max_fps,
-            stream: None,
             stats: Arc::new(CaptureStats::default()),
             stats_task: None,
+            supervisor: None,
+            stop_tx: None,
         })
     }
 
@@ -325,39 +354,22 @@ impl FrameSource for ScreenCaptureKitSource {
 
     async fn start(&mut self) -> Result<FrameStream> {
         let (width, height) = (self.selected.width_px, self.selected.height_px);
-
-        let config = SCStreamConfiguration::new()
-            .with_width(width)
-            .with_height(height)
-            // Explicit even though the binding pins it: on macOS 26 the system
-            // default is bi-planar YCbCr.
-            .with_pixel_format(ScPixelFormat::BGRA)
-            .with_fps(self.max_fps.max(1))
-            .with_queue_depth(QUEUE_DEPTH)
-            // Wave 1 burns the cursor into the frame; F-005 replaces it with a
-            // real RDP pointer and turns this off.
-            .with_shows_cursor(true);
-
-        let mut stream = SCStream::new(&self.filter, &config);
+        let config = build_config(width, height, self.max_fps);
 
         // The stream needs somewhere to publish before it starts, so the channel
         // opens on a placeholder. If the first real frame never arrives, that
         // placeholder is what the client sees — which is the point.
         let (tx, rx) = watch::channel(placeholder::render(width, height, Placeholder::WaitingForFirstFrame));
+        let (death_tx, death_rx) = mpsc::unbounded_channel();
 
-        stream.add_output_handler(
-            FrameHandler {
-                tx,
-                stats: Arc::clone(&self.stats),
-            },
-            SCStreamOutputType::Screen,
-        );
-
-        stream
-            .start_capture()
-            .map_err(|e| anyhow!("{e}"))
-            .context("starting the ScreenCaptureKit stream")?;
-        self.stream = Some(stream);
+        let stream = build_stream(
+            &self.filter,
+            &config,
+            tx.clone(),
+            Arc::clone(&self.stats),
+            death_tx.clone(),
+        )
+        .context("starting the ScreenCaptureKit stream")?;
 
         info!(
             display = %self.selected.name,
@@ -371,6 +383,22 @@ impl FrameSource for ScreenCaptureKitSource {
         self.await_first_frame(rx.clone()).await;
         self.spawn_stats_task();
 
+        // The supervisor owns the stream from here on: it stops it cleanly on
+        // shutdown and rebuilds it after an unexpected death (F-007.2).
+        let (stop_tx, stop_rx) = oneshot::channel();
+        self.supervisor = Some(tokio::spawn(supervise(SupervisorParams {
+            display_id: self.selected.id,
+            desktop: self.desktop,
+            max_fps: self.max_fps,
+            tx,
+            stats: Arc::clone(&self.stats),
+            death_tx,
+            death_rx,
+            initial: stream,
+            stop_rx,
+        })));
+        self.stop_tx = Some(stop_tx);
+
         Ok(FrameStream::new(rx).with_stats(Arc::clone(&self.stats)))
     }
 
@@ -378,17 +406,214 @@ impl FrameSource for ScreenCaptureKitSource {
         if let Some(task) = self.stats_task.take() {
             task.abort();
         }
-        if let Some(stream) = self.stream.take() {
-            // Dropping alone is not enough to make the macOS recording
-            // indicator go out (AC-9); the stream must be stopped explicitly.
-            stream
-                .stop_capture()
-                .map_err(|e| anyhow!("{e}"))
-                .context("stopping the ScreenCaptureKit stream")?;
-            info!("capture stopped");
+        // Ask the supervisor to stop the stream cleanly, then wait for it: only
+        // an explicit `stop_capture` makes the macOS recording indicator go out
+        // (AC-9), and it happens inside the supervisor task.
+        if let Some(stop_tx) = self.stop_tx.take() {
+            let _ = stop_tx.send(());
+        }
+        if let Some(supervisor) = self.supervisor.take() {
+            match tokio::time::timeout(Duration::from_secs(2), supervisor).await {
+                Ok(Ok(())) => info!("capture stopped"),
+                Ok(Err(error)) => warn!(?error, "capture supervisor ended abnormally"),
+                Err(_) => warn!("capture supervisor did not stop within the timeout"),
+            }
         }
         Ok(())
     }
+}
+
+/// Builds the stream configuration shared by the initial start and every
+/// recovery rebuild, so the two cannot drift apart.
+fn build_config(width: u32, height: u32, max_fps: u32) -> SCStreamConfiguration {
+    SCStreamConfiguration::new()
+        .with_width(width)
+        .with_height(height)
+        // Explicit even though the binding pins it: on macOS 26 the system
+        // default is bi-planar YCbCr.
+        .with_pixel_format(ScPixelFormat::BGRA)
+        .with_fps(max_fps.max(1))
+        .with_queue_depth(QUEUE_DEPTH)
+        // Wave 1 burns the cursor into the frame; F-005 replaces it with a
+        // real RDP pointer and turns this off.
+        .with_shows_cursor(true)
+}
+
+/// Builds a delegated stream, attaches the frame handler, and starts it.
+///
+/// The delegate carries `death_tx` so an unexpected stop reaches the supervisor;
+/// the handler publishes to `tx`, the same channel across rebuilds so the client
+/// never has to reconnect (F-007.2).
+fn build_stream(
+    filter: &SCContentFilter,
+    config: &SCStreamConfiguration,
+    tx: watch::Sender<Frame>,
+    stats: Arc<CaptureStats>,
+    death_tx: mpsc::UnboundedSender<String>,
+) -> Result<SCStream> {
+    let mut stream = SCStream::new_with_delegate(filter, config, StreamDelegate { death_tx });
+    stream.add_output_handler(FrameHandler { tx, stats }, SCStreamOutputType::Screen);
+    stream.start_capture().map_err(|e| anyhow!("{e}"))?;
+    Ok(stream)
+}
+
+/// Everything the supervisor task needs; grouped to keep the spawn readable and
+/// under Clippy's argument-count limit.
+struct SupervisorParams {
+    display_id: DisplayId,
+    desktop: (u32, u32),
+    max_fps: u32,
+    tx: watch::Sender<Frame>,
+    stats: Arc<CaptureStats>,
+    death_tx: mpsc::UnboundedSender<String>,
+    death_rx: mpsc::UnboundedReceiver<String>,
+    initial: SCStream,
+    stop_rx: oneshot::Receiver<()>,
+}
+
+/// Owns the live stream, rebuilding it after an unexpected stop until asked to
+/// quit (F-007.2, F-007.8). Runs as its own task so a rebuild never blocks the
+/// server loop or ScreenCaptureKit's delivery thread.
+async fn supervise(params: SupervisorParams) {
+    let SupervisorParams {
+        display_id,
+        desktop,
+        max_fps,
+        tx,
+        stats,
+        death_tx,
+        mut death_rx,
+        initial,
+        mut stop_rx,
+    } = params;
+
+    let mut current = initial;
+    let mut backoff = Backoff::new(RECOVERY_MIN_BACKOFF, RECOVERY_MAX_BACKOFF);
+
+    loop {
+        tokio::select! {
+            _ = &mut stop_rx => break,
+            death = death_rx.recv() => {
+                let Some(reason) = death else { break };
+                warn!(%reason, display = display_id.0, "capture stream stopped unexpectedly; recovering");
+                // Best effort on the dead stream; a clean stop is not reported
+                // back to the delegate, so this cannot loop us.
+                let _ = current.stop_capture();
+                match recover(
+                    display_id,
+                    desktop,
+                    max_fps,
+                    &tx,
+                    &stats,
+                    &death_tx,
+                    &mut backoff,
+                    &mut death_rx,
+                    &mut stop_rx,
+                )
+                .await
+                {
+                    Some(stream) => {
+                        current = stream;
+                        backoff.reset();
+                        info!(display = display_id.0, "capture recovered");
+                    }
+                    None => break,
+                }
+            }
+        }
+    }
+
+    // Whatever stream is current, stop it so the recording indicator goes out.
+    let _ = current.stop_capture();
+}
+
+/// Retries rebuilding the stream with backoff until it starts again, or returns
+/// `None` if a stop was requested mid-recovery.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "recovery state threaded through by reference; grouping it would not clarify"
+)]
+async fn recover(
+    display_id: DisplayId,
+    desktop: (u32, u32),
+    max_fps: u32,
+    tx: &watch::Sender<Frame>,
+    stats: &Arc<CaptureStats>,
+    death_tx: &mpsc::UnboundedSender<String>,
+    backoff: &mut Backoff,
+    death_rx: &mut mpsc::UnboundedReceiver<String>,
+    stop_rx: &mut oneshot::Receiver<()>,
+) -> Option<SCStream> {
+    loop {
+        let delay = backoff.next_delay();
+        tokio::select! {
+            _ = &mut *stop_rx => return None,
+            () = tokio::time::sleep(delay) => {}
+        }
+
+        // Drain death signals queued while the old stream was dying, so a
+        // backlog does not immediately re-trigger recovery on the new one.
+        while death_rx.try_recv().is_ok() {}
+
+        match try_rebuild(
+            display_id,
+            desktop,
+            max_fps,
+            tx.clone(),
+            Arc::clone(stats),
+            death_tx.clone(),
+        ) {
+            Ok(stream) => return Some(stream),
+            Err(error) => warn!(
+                %error,
+                display = display_id.0,
+                delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
+                "recovery attempt failed; backing off"
+            ),
+        }
+    }
+}
+
+/// Re-enumerates shareable content, finds the same display by id, and rebuilds
+/// the stream (F-007.2). Fails if the display is not currently present — the
+/// caller keeps retrying with backoff until it returns (switching to a different
+/// display is deferred to F-006, see F-007.4).
+fn try_rebuild(
+    display_id: DisplayId,
+    desktop: (u32, u32),
+    max_fps: u32,
+    tx: watch::Sender<Frame>,
+    stats: Arc<CaptureStats>,
+    death_tx: mpsc::UnboundedSender<String>,
+) -> Result<SCStream> {
+    let content = SCShareableContent::get()
+        .map_err(|e| anyhow!("{e}"))
+        .context("re-enumerating shareable content during recovery")?;
+
+    let displays = content.displays();
+    let display = displays
+        .iter()
+        .find(|d| d.display_id() == display_id.0)
+        .ok_or_else(|| anyhow!("display {} is not currently available", display_id.0))?;
+
+    let filter = SCContentFilter::create()
+        .with_display(display)
+        .with_excluding_windows(&[])
+        .build();
+
+    let (width, height, _scale) = pixel_geometry(&filter, display);
+    if (width, height) != desktop {
+        // The negotiated desktop size is fixed until F-006 wires up dynamic
+        // resize; a changed resolution would need scaling/cropping (F-007.6).
+        warn!(
+            observed = ?(width, height),
+            negotiated = ?desktop,
+            "recovered display geometry differs from the negotiated desktop; sending at the new size (resize is F-006)"
+        );
+    }
+
+    let config = build_config(width, height, max_fps);
+    build_stream(&filter, &config, tx, stats, death_tx)
 }
 
 impl ScreenCaptureKitSource {

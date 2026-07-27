@@ -2,6 +2,7 @@
 //!
 //! This module knows nothing about RDP. See `specs/01-architecture.md` §1.
 
+mod backoff;
 pub mod canvas;
 pub mod placeholder;
 pub mod screen;

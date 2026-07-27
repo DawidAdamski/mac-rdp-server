@@ -111,6 +111,67 @@ fn run_client(addr: SocketAddr, codecs: BitmapCodecs) -> f64 {
     }
 }
 
+/// Runs one long-lived server and connects `rounds` fresh clients in sequence,
+/// returning each client's non-black fraction. Proves the server keeps serving
+/// picture across reconnects without a restart (F-007.9, F-007.11).
+fn reconnect_fractions(rounds: usize) -> Vec<f64> {
+    let dir = std::env::temp_dir().join(format!("mac-rdp-reconnect-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let cert = dir.join("cert.pem");
+    let key = dir.join("key.pem");
+    tls::ensure_self_signed(&cert, &key).expect("generate certificate");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("reserve a port");
+    let addr = listener.local_addr().expect("read the port");
+    drop(listener);
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build runtime");
+
+    // Sequential clients on their own thread: each connect is blocking and
+    // `RdpServer::run` is `!Send`, so it must stay on the runtime's LocalSet.
+    let clients = std::thread::spawn(move || {
+        (0..rounds)
+            .map(|_| run_client(addr, BitmapCodecs(Vec::new())))
+            .collect::<Vec<_>>()
+    });
+
+    runtime.block_on(async move {
+        let mut source = TestPatternSource::new(PATTERN_WIDTH, PATTERN_HEIGHT);
+        let stream = source.start().await.expect("start the frame source");
+        let dispatcher = input::spawn(|| Box::new(LoggingSink::new()), 16);
+
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async move {
+                let server = tokio::task::spawn_local(async move {
+                    let _ = session::run(session::SessionParams {
+                        bind_addr: addr,
+                        cert_path: &cert,
+                        key_path: &key,
+                        stream,
+                        desktop_width: u16::try_from(PATTERN_WIDTH).expect("fits"),
+                        desktop_height: u16::try_from(PATTERN_HEIGHT).expect("fits"),
+                        dispatcher,
+                    })
+                    .await;
+                });
+
+                let fractions = tokio::task::spawn_blocking(move || clients.join().expect("client thread"))
+                    .await
+                    .expect("join clients");
+
+                server.abort();
+                source.stop().await.ok();
+                let _ = std::fs::remove_dir_all(&dir);
+                fractions
+            })
+            .await
+    })
+}
+
 struct NoNetworkClient;
 
 impl ironrdp_connector::sspi::network_client::NetworkClient for NoNetworkClient {
@@ -298,6 +359,23 @@ fn a_client_advertising_no_codecs_sees_the_picture() {
         "only {:.1}% of pixels were non-black on the plain bitmap path",
         fraction * 100.0
     );
+}
+
+#[test]
+fn repeated_reconnects_each_see_the_picture() {
+    // F-007.11: three sequential clients against one long-lived server. Every
+    // reconnect must render picture — the server does not degrade after a
+    // client disconnects (including the earlier "Connection reset" path).
+    const ROUNDS: usize = 3;
+    let fractions = reconnect_fractions(ROUNDS);
+    assert_eq!(fractions.len(), ROUNDS, "every round must produce a result");
+    for (round, fraction) in fractions.iter().enumerate() {
+        assert!(
+            *fraction > 0.5,
+            "reconnect {round}: only {:.1}% of pixels were non-black",
+            fraction * 100.0
+        );
+    }
 }
 
 mod danger {
