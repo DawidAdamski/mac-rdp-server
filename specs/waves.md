@@ -17,7 +17,7 @@ Dopiero wtedy zaczyna się następna fala.
 | 3 | Jakość MVP | F-004…F-007 | In progress (F-007 Implemented; F-004/005/006 do napisania) |
 | 4 | Bezpieczeństwo | F-101, F-108 | Planned |
 | 5 | Produkt | F-106, F-109, F-110 | Planned |
-| 6 | Komfort | F-102, F-003a | Planned |
+| 6 | Komfort | F-102, F-003a, F-105 | Planned |
 | — | Backlog | F-1xx | Planned |
 
 ## Cel Fal 4–6: z „działa u autora" na „da się zainstalować i używać"
@@ -236,6 +236,14 @@ instalacja → nadanie dwóch uprawnień → ustawienie hasła → połączenie 
 |---|---|
 | F-102 | Clipboard (MS-RDPECLIP) — praktycznie warunek codziennego używania |
 | F-003a | Klawiatura: układy, znaki narodowe, dead keys (wymaga ADR-0008) |
+| F-105 | Wiele ekranów Maca na jednym ekranie klienta: tryby `single`/`switch`/`mosaic` |
+
+**F-105 — sprostowanie założenia (2026-08-07).** RDP **obsługuje** wiele
+monitorów po stronie klienta (`mstsc /multimon`, MS-RDPBCGR 2.2.1.3.6).
+Blokadą jest silnik: `ironrdp-acceptor-0.10.0/src/connection.rs:786-796`
+wysyła klientowi layout z **jednym** monitorem, na sztywno. Dlatego F-105 składa
+N ekranów Maca na **jednym** pulpicie klienta, a prawdziwy multi-monitor zostaje
+przy F-200 (własne MS-RDPBCGR) albo PR-ze upstream.
 
 F-102 będzie **pierwszym kanałem wirtualnym** w projekcie, więc dokłada granicę
 architektoniczną: logika schowka (NSPasteboard, formaty, negocjacja) nie wchodzi
@@ -249,12 +257,11 @@ do `session` — tam trafia wyłącznie adapter na `CliprdrServerFactory`.
 |---|---|---|
 | F-103 | Audio (MS-RDPEA) | IronRDP ma `SoundServerFactory` + `RdpsndServerHandler` (formaty OPUS/PCM). Po naszej stronie: przechwycenie audio systemowego (SCK `macos_13_0`). |
 | F-104 | EGFX / nowsze kodeki | `ironrdp-server` ma feature `egfx` + `with_gfx_factory` (od 0.11). |
-| F-105 | Multi-monitor | Wymaga `FrameSource` z wieloma `DisplayInfo` i MS-RDPEDISP. |
 | F-107 | Wydajność: zero-copy / IOSurface | SCK oddaje IOSurface; `screencapturekit` ma `metal` i `is_backed_by_io_surface()`. |
 | F-200 | **Własna implementacja MS-RDPBCGR** | Cel długoterminowy. Podmiana za granicą `session`. Rozbić na PDU-po-PDU, gdy fale 0–3 będą Verified. |
 
 **Przeniesione z backlogu do fal (2026-08-07):** F-101 → Fala 4,
-F-102 → Fala 6, F-106 → Fala 5. F-108, F-109 i F-110 to nowe ID nadane
+F-102 i F-105 → Fala 6, F-106 → Fala 5. F-108, F-109 i F-110 to nowe ID nadane
 w tej aktualizacji.
 
 ## Narzędzia (nie cel, ale trzymamy w zasięgu)
