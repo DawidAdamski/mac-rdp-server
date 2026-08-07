@@ -576,6 +576,9 @@ async fn supervise(params: SupervisorParams) {
                 // The counters are shared across streams, so the new one must
                 // be judged on its own evidence.
                 watchdog.reset();
+                // F-007.18: so the next failure is visible from its first frame
+                // rather than from its thousandth.
+                stats.reset_rejection_log();
                 info!(display = display_id.0, "capture recovered");
             }
             None => break,

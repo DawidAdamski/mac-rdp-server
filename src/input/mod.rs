@@ -65,10 +65,18 @@ pub enum KeyEvent {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// No `Eq`: [`state::ScreenGeometry`] carries floats.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InputEvent {
     Pointer(PointerEvent),
     Key(KeyEvent),
+    /// The captured display moved or changed scale (F-007.17).
+    ///
+    /// Deliberately travels the **same channel** as pointer and key events
+    /// rather than a side channel: coordinate mapping must change exactly
+    /// between two events, never in the middle of a burst of moves, and one
+    /// ordered queue gives that for free.
+    Geometry(state::ScreenGeometry),
 }
 
 /// Destination for input events.
@@ -82,6 +90,14 @@ pub enum InputEvent {
 pub trait InputSink {
     fn pointer(&mut self, ev: PointerEvent) -> Result<()>;
     fn key(&mut self, ev: KeyEvent) -> Result<()>;
+
+    /// Adopts new geometry for the captured display (F-007.17).
+    ///
+    /// Defaults to ignoring it: only a sink that converts desktop pixels into
+    /// screen coordinates has anything to do here.
+    fn set_geometry(&mut self, geometry: state::ScreenGeometry) {
+        let _ = geometry;
+    }
 }
 
 /// Default capacity of the channel between the RDP thread and the sink.
@@ -99,6 +115,10 @@ pub const DEFAULT_QUEUE_CAPACITY: usize = 256;
 ///
 /// The channel is **bounded on purpose**: under a flood of events we drop and
 /// warn rather than grow unboundedly.
+///
+/// `Clone`able so the geometry watcher can feed the same queue as the RDP
+/// session (F-007.17). Each clone counts only its own drops.
+#[derive(Clone)]
 pub struct InputDispatcher {
     tx: mpsc::Sender<InputEvent>,
     dropped: u64,
@@ -152,6 +172,10 @@ where
                 let result = match event {
                     InputEvent::Pointer(ev) => sink.pointer(ev),
                     InputEvent::Key(ev) => sink.key(ev),
+                    InputEvent::Geometry(geometry) => {
+                        sink.set_geometry(geometry);
+                        Ok(())
+                    }
                 };
                 if let Err(error) = result {
                     warn!(?error, "input sink rejected an event");
@@ -184,20 +208,24 @@ mod tests {
         assert_eq!(dispatcher.dropped(), 8, "capacity 2, so 8 of 10 must be dropped");
     }
 
+    struct Collector(std::sync::Arc<std::sync::Mutex<Vec<InputEvent>>>);
+
+    impl InputSink for Collector {
+        fn pointer(&mut self, ev: PointerEvent) -> Result<()> {
+            self.0.lock().expect("poisoned").push(InputEvent::Pointer(ev));
+            Ok(())
+        }
+        fn key(&mut self, ev: KeyEvent) -> Result<()> {
+            self.0.lock().expect("poisoned").push(InputEvent::Key(ev));
+            Ok(())
+        }
+        fn set_geometry(&mut self, geometry: state::ScreenGeometry) {
+            self.0.lock().expect("poisoned").push(InputEvent::Geometry(geometry));
+        }
+    }
+
     #[tokio::test]
     async fn events_reach_the_sink() {
-        struct Collector(std::sync::Arc<std::sync::Mutex<Vec<InputEvent>>>);
-        impl InputSink for Collector {
-            fn pointer(&mut self, ev: PointerEvent) -> Result<()> {
-                self.0.lock().expect("poisoned").push(InputEvent::Pointer(ev));
-                Ok(())
-            }
-            fn key(&mut self, ev: KeyEvent) -> Result<()> {
-                self.0.lock().expect("poisoned").push(InputEvent::Key(ev));
-                Ok(())
-            }
-        }
-
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let collector = Collector(std::sync::Arc::clone(&seen));
         let mut dispatcher = spawn(move || Box::new(collector) as Box<dyn InputSink>, 8);
@@ -215,5 +243,49 @@ mod tests {
                 InputEvent::Key(KeyEvent::Unicode { ch: 65, pressed: true }),
             ]
         );
+    }
+
+    /// F-007.17: geometry rides the same queue as the events it affects, so the
+    /// mapping can only change *between* two events, never inside a burst.
+    #[tokio::test]
+    async fn geometry_updates_reach_the_sink_in_order() {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let collector = Collector(std::sync::Arc::clone(&seen));
+        let mut dispatcher = spawn(move || Box::new(collector) as Box<dyn InputSink>, 8);
+
+        let moved = state::ScreenGeometry::new(1512.0, 0.0, 1.0);
+        dispatcher.send(InputEvent::Pointer(PointerEvent::MoveAbsolute { x: 1, y: 1 }));
+        dispatcher.send(InputEvent::Geometry(moved));
+        dispatcher.send(InputEvent::Pointer(PointerEvent::MoveAbsolute { x: 2, y: 2 }));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let seen = seen.lock().expect("poisoned");
+        assert_eq!(
+            *seen,
+            vec![
+                InputEvent::Pointer(PointerEvent::MoveAbsolute { x: 1, y: 1 }),
+                InputEvent::Geometry(moved),
+                InputEvent::Pointer(PointerEvent::MoveAbsolute { x: 2, y: 2 }),
+            ]
+        );
+    }
+
+    /// A sink that does not map coordinates must not have to care.
+    #[tokio::test]
+    async fn a_sink_without_geometry_handling_ignores_the_update() {
+        struct Deaf;
+        impl InputSink for Deaf {
+            fn pointer(&mut self, _: PointerEvent) -> Result<()> {
+                Ok(())
+            }
+            fn key(&mut self, _: KeyEvent) -> Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut dispatcher = spawn(|| Box::new(Deaf) as Box<dyn InputSink>, 8);
+        dispatcher.send(InputEvent::Geometry(state::ScreenGeometry::new(1.0, 2.0, 2.0)));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(dispatcher.dropped(), 0);
     }
 }

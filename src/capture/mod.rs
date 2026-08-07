@@ -4,6 +4,7 @@
 
 mod backoff;
 pub mod canvas;
+pub mod geometry;
 pub mod placeholder;
 pub mod screen;
 pub mod test_pattern;
@@ -172,6 +173,17 @@ impl CaptureStats {
     pub(crate) fn should_log_rejection(&self) -> bool {
         let n = self.logged_rejections.fetch_add(1, Ordering::Relaxed);
         n < 3 || n.is_power_of_two()
+    }
+
+    /// Restarts the rejection rate limiter after a successful recovery
+    /// (F-007.18).
+    ///
+    /// The counter is cumulative, so without this it keeps climbing across
+    /// incidents: after one bad session it sits in the hundreds, and the *next*
+    /// failure would stay silent until its thousandth rejected frame — half a
+    /// minute of nothing in the log exactly when something is wrong.
+    pub(crate) fn reset_rejection_log(&self) {
+        self.logged_rejections.store(0, Ordering::Relaxed);
     }
 
     #[must_use]

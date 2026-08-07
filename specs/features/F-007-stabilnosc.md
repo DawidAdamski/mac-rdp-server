@@ -359,9 +359,33 @@ SCK) + drugie ramię `tokio::select!` w `supervise`. **Wyzwalacz potwierdzony
 w boju** (dwa wyzwolenia, bez zalewania logu); **AC-2 nierozstrzygnięte** —
 patrz §8a.
 
-**Iteracja 1c (Draft):** F-007.17, F-007.17a, F-007.17b (odświeżanie geometrii
-wejścia — usterka **potwierdzona**), F-007.18 (zerowanie rate-limitu logu po
-odtworzeniu). Czeka na approve właściciela.
+**Iteracja 1c: Approved i zaimplementowana** (2026-08-07). F-007.17, .17a,
+.17b (odświeżanie geometrii wejścia) i F-007.18 (zerowanie rate-limitu logu).
+**Czeka na ręczną weryfikację.**
+
+Rozwiązanie: nowy `capture::geometry::probe` czyta pozycję i skalę ekranu
+prosto z Quartza (`CGDisplayBounds` + tryb wyświetlania) — na tyle tanio, że
+da się to odpytywać co 2 s, w przeciwieństwie do `SCShareableContent`.
+Zadanie w `main` przelicza `DisplayInfo` na `ScreenGeometry` i wysyła je
+**tym samym kanałem, co zdarzenia myszy i klawiatury**, jako nowy wariant
+`InputEvent::Geometry`. Dzięki temu mapowanie zmienia się dokładnie *pomiędzy*
+dwoma zdarzeniami, nigdy w środku serii ruchów, i nie powstaje żaden nowy
+kanał ani blokada.
+
+Dwie rzeczy, które łatwo tu przeoczyć, i dlatego mają własne testy:
+
+- **Zapamiętana pozycja kursora też musi się przenieść.** Klik i scroll są
+  wysyłane w miejscu ostatnio zapamiętanym, nie w miejscu ostatniego ruchu —
+  bez przeliczenia pierwszy klik po dołożeniu ekranu wylądowałby na starym
+  ekranie, mimo że ruchy byłyby już poprawne (`CgEventSink::rebase_cursor`).
+- **Aktualizacja geometrii może zostać porzucona**, bo kanał wejścia jest
+  bounded i pod zalewem ruchów myszy gubi zdarzenia. Wysłana raz, przepadłaby
+  na zawsze. Dlatego watcher publikuje **przy każdym takcie**, nie tylko przy
+  zmianie — koszt to jedno zdarzenie na 2 s, a błąd sam się koryguje.
+
+CI zielone: **102** testy jednostkowe, clippy `-D warnings`, `check --locked`.
+Sprawdzone na żywym Macu, że `probe` zwraca poprawne wartości
+(`display=3 origin=(0,0) scale=1.0`, zgodnie z tym, co raportuje SCK).
 
 CI zielone: **91** testów jednostkowych (81 + 10 na watchdogu), test 3
 reconnectów (`repeated_reconnects_each_see_the_picture`), clippy `-D warnings`,

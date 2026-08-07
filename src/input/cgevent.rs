@@ -69,6 +69,18 @@ impl CgEventSink {
         })
     }
 
+    /// Moves the cursor's remembered position into the new coordinate space.
+    ///
+    /// Without this a geometry change would leave `cursor` — which scroll and
+    /// button events are posted at — pointing at wherever the old origin used
+    /// to be, so the first click after a display was attached would land on the
+    /// wrong screen even though moves had already been corrected.
+    fn rebase_cursor(&mut self, previous: ScreenGeometry, current: ScreenGeometry) {
+        let x = (self.cursor.x - previous.origin_x) * previous.scale / current.scale + current.origin_x;
+        let y = (self.cursor.y - previous.origin_y) * previous.scale / current.scale + current.origin_y;
+        self.cursor = CGPoint::new(x, y);
+    }
+
     fn flags(&self) -> CGEventFlags {
         CGEventFlags::from_bits_truncate(self.modifiers.cg_flags())
     }
@@ -223,6 +235,23 @@ impl InputSink for CgEventSink {
         }
         Ok(())
     }
+
+    /// F-007.17. The watcher republishes unconditionally, so most calls are
+    /// no-ops and only a real move is logged.
+    fn set_geometry(&mut self, geometry: ScreenGeometry) {
+        let previous = self.geometry;
+        if previous == geometry {
+            return;
+        }
+        self.geometry = geometry;
+        self.rebase_cursor(previous, geometry);
+        info!(
+            origin_x = geometry.origin_x,
+            origin_y = geometry.origin_y,
+            scale = geometry.scale,
+            "captured display moved; input coordinates re-based"
+        );
+    }
 }
 
 /// The `(CGEventType, CGMouseButton)` for a button press or release.
@@ -305,6 +334,60 @@ mod tests {
         assert_eq!(other_button_number(MouseButton::Right), None);
     }
 
+    /// Builds a sink without touching the windowing system: `source: None` is
+    /// the degraded mode the constructor itself falls back to.
+    fn sink_at(geometry: ScreenGeometry, cursor: CGPoint) -> CgEventSink {
+        CgEventSink {
+            source: None,
+            geometry,
+            modifiers: Modifiers::default(),
+            buttons: Buttons::default(),
+            cursor,
+            dropped: 0,
+        }
+    }
+
+    /// F-007.17. Moves are re-mapped by `geometry`, but clicks and scrolls are
+    /// posted at the *remembered* cursor — so that has to move too, or the first
+    /// click after a display is attached lands on the wrong screen.
+    #[test]
+    fn a_geometry_change_carries_the_remembered_cursor_with_it() {
+        let before = ScreenGeometry::new(0.0, 0.0, 1.0);
+        // Cursor sits 300 points into a display that starts at zero.
+        let mut sink = sink_at(before, CGPoint::new(300.0, 100.0));
+
+        // The lid opens; macOS pushes the captured display to the right.
+        sink.set_geometry(ScreenGeometry::new(1512.0, 0.0, 1.0));
+
+        assert_eq!(
+            (sink.cursor.x, sink.cursor.y),
+            (1812.0, 100.0),
+            "the cursor must stay on the same desktop pixel, not the same screen point"
+        );
+    }
+
+    #[test]
+    fn a_scale_change_rebases_the_cursor_too() {
+        let mut sink = sink_at(ScreenGeometry::new(0.0, 0.0, 1.0), CGPoint::new(400.0, 200.0));
+        // Same place, now a Retina mode: 400 points at 1x is pixel 400, which
+        // at 2x is 200 points.
+        sink.set_geometry(ScreenGeometry::new(0.0, 0.0, 2.0));
+        assert_eq!((sink.cursor.x, sink.cursor.y), (200.0, 100.0));
+    }
+
+    #[test]
+    fn republishing_the_same_geometry_changes_nothing() {
+        // The watcher resends every tick, so this is the common case.
+        let geometry = ScreenGeometry::new(1512.0, 0.0, 2.0);
+        let mut sink = sink_at(geometry, CGPoint::new(1600.0, 40.0));
+        sink.set_geometry(geometry);
+        assert_eq!(
+            (sink.cursor.x, sink.cursor.y),
+            (1600.0, 40.0),
+            "an unchanged geometry must not drift the cursor"
+        );
+    }
+
     #[test]
     fn middle_button_event_carries_button_number_two() {
         // Builds a real CGEvent (Accessibility not required to *create* one) and
@@ -315,14 +398,7 @@ mod tests {
             // by the pure test above; skip the live-object check.
             return;
         };
-        let sink = CgEventSink {
-            source: None,
-            geometry: ScreenGeometry::new(0.0, 0.0, 1.0),
-            modifiers: Modifiers::default(),
-            buttons: Buttons::default(),
-            cursor: CGPoint::new(10.0, 20.0),
-            dropped: 0,
-        };
+        let sink = sink_at(ScreenGeometry::new(0.0, 0.0, 1.0), CGPoint::new(10.0, 20.0));
 
         let ev = sink
             .build_button_event(&source, MouseButton::Middle, true)

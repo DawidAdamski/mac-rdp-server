@@ -281,6 +281,34 @@ mod tests {
         assert_eq!(geom.pixel_to_point(100, 50), (2020.0, 50.0));
     }
 
+    /// F-007.17b. The bug this guards: the origin is read once at startup, and
+    /// attaching a display re-lays-out the global point space underneath it, so
+    /// the same desktop pixel has to resolve to a different macOS point.
+    #[test]
+    fn the_same_pixel_maps_elsewhere_after_the_display_moves() {
+        // Captured display starts at the origin; the laptop lid then opens and
+        // macOS pushes the external screen to the right of the built-in one.
+        let before = ScreenGeometry::new(0.0, 0.0, 1.0);
+        let after = ScreenGeometry::new(1512.0, 0.0, 1.0);
+
+        assert_eq!(before.pixel_to_point(0, 0), (0.0, 0.0));
+        assert_eq!(
+            after.pixel_to_point(0, 0),
+            (1512.0, 0.0),
+            "the left edge of the RDP desktop must follow the display, not stay at zero"
+        );
+        assert_ne!(before.pixel_to_point(100, 100), after.pixel_to_point(100, 100));
+    }
+
+    #[test]
+    fn a_scale_change_alone_remaps_the_desktop() {
+        // Same position, mirrored into a Retina mode: the point space halves.
+        let before = ScreenGeometry::new(100.0, 50.0, 1.0);
+        let after = ScreenGeometry::new(100.0, 50.0, 2.0);
+        assert_eq!(before.pixel_to_point(400, 200), (500.0, 250.0));
+        assert_eq!(after.pixel_to_point(400, 200), (300.0, 150.0));
+    }
+
     #[test]
     fn zero_scale_is_treated_as_one() {
         let geom = ScreenGeometry::new(0.0, 0.0, 0.0);

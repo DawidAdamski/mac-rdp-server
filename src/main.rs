@@ -10,13 +10,13 @@ use tracing::{error, info, warn};
 use mac_rdp_server::capture::placeholder::{Placeholder, PlaceholderSource};
 use mac_rdp_server::capture::screen::ScreenCaptureKitSource;
 use mac_rdp_server::capture::test_pattern;
-use mac_rdp_server::capture::{FrameSource, FrameStream};
+use mac_rdp_server::capture::{DisplayId, FrameSource, FrameStream};
 use mac_rdp_server::config::{Cli, Config};
 use mac_rdp_server::input::cgevent::CgEventSink;
 use mac_rdp_server::input::logging::LoggingSink;
 use mac_rdp_server::input::state::ScreenGeometry;
 use mac_rdp_server::perms::{Permission, PermissionState};
-use mac_rdp_server::{input, perms, session, tls};
+use mac_rdp_server::{capture, input, perms, session, tls};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -59,7 +59,15 @@ async fn main() -> Result<()> {
         },
         input::DEFAULT_QUEUE_CAPACITY,
     );
+
+    let geometry_watcher = selected_display_id(source.as_ref(), config.display)
+        .map(|id| tokio::spawn(watch_geometry(id, dispatcher.clone())));
+
     let result = serve(&config, stream, width, height, dispatcher).await;
+
+    if let Some(watcher) = geometry_watcher {
+        watcher.abort();
+    }
 
     if let Err(error) = source.stop().await {
         warn!(?error, "failed to stop the frame source cleanly");
@@ -106,6 +114,59 @@ fn selected_geometry(source: &dyn FrameSource, index: u32) -> ScreenGeometry {
     match chosen {
         Some(d) => ScreenGeometry::new(d.origin_x, d.origin_y, d.scale_factor),
         None => ScreenGeometry::new(0.0, 0.0, 1.0),
+    }
+}
+
+/// Identifier of the display being captured, if it can be resolved.
+fn selected_display_id(source: &dyn FrameSource, index: u32) -> Option<DisplayId> {
+    let displays = source.displays().unwrap_or_default();
+    displays.get(index as usize).or_else(|| displays.first()).map(|d| d.id)
+}
+
+/// Keeps the input sink's coordinate mapping in step with the display (F-007.17).
+///
+/// This task is the only place `capture` and `input` meet, which is the point:
+/// `capture::geometry` publishes our own `DisplayInfo` and knows nothing about
+/// input, the sink consumes a `ScreenGeometry` and knows nothing about
+/// ScreenCaptureKit, and the translation happens here — the same way `main`
+/// already wires `FrameStream` to the session (F-007.17a).
+///
+/// It republishes **on every tick**, not only on change. A geometry update
+/// travelling the bounded input queue can be dropped under a flood of mouse
+/// moves, and an update sent once would then be lost for good, leaving the
+/// mapping wrong until restart. Resending makes that self-correcting at the
+/// cost of one event every couple of seconds.
+async fn watch_geometry(id: DisplayId, mut dispatcher: input::InputDispatcher) {
+    /// Display layout changes at human speed; polling faster buys nothing.
+    const INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+    let mut ticker = tokio::time::interval(INTERVAL);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // Announce the first reading. A silent watcher and a broken one look
+    // identical otherwise — nothing is logged until the geometry moves, and
+    // that ambiguity is exactly what makes a failed verification hard to read.
+    let mut announced = false;
+
+    loop {
+        ticker.tick().await;
+        // `None` means the display is not currently active — the lid is shut or
+        // the cable is out. Keep the last known mapping rather than steering
+        // input through a null rectangle.
+        if let Some(info) = capture::geometry::probe(id) {
+            if !announced {
+                announced = true;
+                info!(
+                    display = id.0,
+                    origin_x = info.origin_x,
+                    origin_y = info.origin_y,
+                    scale = info.scale_factor,
+                    interval_s = INTERVAL.as_secs(),
+                    "watching the captured display for layout changes"
+                );
+            }
+            let geometry = ScreenGeometry::new(info.origin_x, info.origin_y, info.scale_factor);
+            dispatcher.send(input::InputEvent::Geometry(geometry));
+        }
     }
 }
 
