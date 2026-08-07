@@ -1,7 +1,7 @@
 # F-004 — Damage tracking: wysyłamy tylko to, co się zmieniło
 
 - **Fala:** 3 (Jakość MVP)
-- **Status:** Draft
+- **Status:** Implemented (2026-08-07) — czeka na pomiar i weryfikację ręczną
 - **Data:** 2026-08-07
 - **ADR:** ADR-0009 (źródło damage'u), ADR-0005 (stride), ADR-0006 (kodeki)
 - **Zależności:** brak wejściowych; **blokuje** sensowność F-005 (kursor)
@@ -164,9 +164,25 @@ uzasadnienie w ADR-0009 §4.
 
 ## 7. Wyniki pomiaru
 
-*(do wypełnienia przy implementacji — F-004.18, AC-6)*
+*(do wypełnienia — F-004.18, AC-6)*
 
-| Scenariusz | Bajty/s przed | Bajty/s po | Klatki wysłane przed | Po |
+Enkoder sam liczy wszystko, czego ten pomiar potrzebuje, i wypisuje to co 10 s:
+
+```
+MAC_RDP_LOG="info,mac_rdp_server=debug" ./target/release/mac-rdp-server
+...
+DEBUG damage stats  frames_in=300 unchanged=284 full_frames=1 regions=37
+                    bytes_sent=4718592 bytes_if_full=8847360000 saved_pct=99
+```
+
+- `bytes_if_full` — ile poszłoby przy zachowaniu z Fali 1 (ścieżka `--encoder full`).
+- `bytes_sent` — ile faktycznie poszło.
+- `saved_pct` — różnica, czyli wynik.
+
+Sesja musi trwać **ponad 10 s**, bo tyle wynosi interwał; licznik jest
+per-połączenie, więc nowe połączenie zaczyna od zera.
+
+| Scenariusz | `bytes_if_full` | `bytes_sent` | `saved_pct` | `unchanged` / `frames_in` |
 |---|---|---|---|---|
 | Statyczny pulpit | | | | |
 | Pisanie w edytorze | | | | |
@@ -191,6 +207,27 @@ uzasadnienie w ADR-0009 §4.
 
 ## 9. Status
 
-**Draft** — czeka na approve właściciela. Approve F-004 = zgoda na decyzję
-z **ADR-0009** (diff jako źródło prawdy, `dirty_rects()` dopiero jako
-optymalizacja), która **odwraca** zapowiedź z `waves.md` Fala 1.
+**Approved** (2026-08-07). **Implemented** (2026-08-07) — czeka na pomiar
+(§7) i ręczną weryfikację AC-2…AC-5, AC-7.
+
+Zaimplementowane: F-004.1…F-004.17, F-004.19, F-004.20. Nowy moduł
+`src/encoder/damage.rs`, wariant `FrameUpdate::Region`, przełącznik
+`--encoder full|damage` (domyślnie `damage`), walidacja szerokości pulpitu
+w `main`. CI: **121 testów jednostkowych** + 4 integracyjne pikselowe,
+clippy `-D warnings`, `check --locked`.
+
+### Lekcja z pisania testu F-004.20
+
+Pierwsza wersja testu integracyjnego **przechodziła przy celowo zepsutym
+umiejscowieniu regionów** — sprawdzone przez podmianę `x`/`y` na zera
+w `session::convert`. Powód: sesja zaczyna się pełną klatką, która pasuje
+idealnie od razu, więc asercja „obraz zgadza się z wzorcem" była spełniona,
+zanim doleciał pierwszy region.
+
+Poprawka: dopasowanie liczy się **dopiero po zastosowaniu aktualizacji
+mniejszej niż cały ekran**. Po niej sabotaż jest wykrywany — wszystkie regiony
+zwijają się do `(0,0,127,127)` i test pada z tym w komunikacie.
+
+To jest dokładnie mechanizm z ADR-0006 §„Czego ten incydent nauczył o testach",
+zastosowany do samego testu: **test, którego nie widziano padającego, nie jest
+dowodem.**

@@ -125,7 +125,7 @@ osobną, pełną iterację, nie „przy okazji".
 | Spec | Temat | Stan |
 |---|---|---|
 | F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Implemented** — AC-2 zaliczone po iter. 1b+1c; AC-3/AC-6 do weryfikacji zamykającej |
-| F-004 | Damage tracking — wysyłanie tylko zmienionych regionów | Spec do napisania |
+| F-004 | Damage tracking — wysyłanie tylko zmienionych regionów | **Implemented** — czeka na pomiar i weryfikację ręczną |
 | F-005 | Kursor — `DisplayUpdate::{ColorPointer, RGBAPointer, PointerPosition, HidePointer}` | Spec do napisania |
 | F-006 | Resize sesji — `RdpServerDisplay::request_layout` + MS-RDPEDISP | Spec do napisania |
 | F-007 (iter. 2) | Przełączanie ekranów: F-007.4/.4a/.6/.6a/.7 | Odblokowane przez F-006 |

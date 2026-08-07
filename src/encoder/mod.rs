@@ -4,6 +4,7 @@
 //! tracking in wave 3 — is pure and unit-testable, while `session` is not
 //! (`specs/01-architecture.md` §2).
 
+pub mod damage;
 pub mod full_frame;
 
 use anyhow::Result;
@@ -12,12 +13,21 @@ use crate::capture::Frame;
 
 /// One update to be sent to the client.
 ///
-/// Wave 0 only produces whole frames. `Region` arrives with damage tracking
-/// (F-004) and `Resize` with session resize (F-006); neither requirement is
-/// approved yet, so neither variant exists yet.
+/// `Resize` arrives with session resize (F-006), which is not approved yet.
 #[derive(Debug, Clone)]
 pub enum FrameUpdate {
-    Full { frame: Frame },
+    Full {
+        frame: Frame,
+    },
+    /// A changed rectangle, placed at `(x, y)` of the RDP desktop (F-004).
+    ///
+    /// `frame` carries **only** that rectangle, packed tight
+    /// (`stride == width * bpp`), not a window onto the full frame.
+    Region {
+        x: u32,
+        y: u32,
+        frame: Frame,
+    },
 }
 
 pub trait Encoder: Send {

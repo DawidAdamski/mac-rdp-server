@@ -21,7 +21,9 @@ pub use display::MacRdpDisplay;
 pub use input::MacRdpInput;
 
 use crate::capture::FrameStream;
+use crate::config::EncoderKind;
 use crate::encoder::Encoder;
+use crate::encoder::damage::DamageEncoder;
 use crate::encoder::full_frame::FullFrameEncoder;
 use crate::input::InputDispatcher;
 
@@ -33,6 +35,7 @@ pub struct SessionParams<'a> {
     pub desktop_width: u16,
     pub desktop_height: u16,
     pub dispatcher: InputDispatcher,
+    pub encoder: EncoderKind,
 }
 
 /// Builds the server and serves connections until it stops.
@@ -49,13 +52,21 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
         desktop_width,
         desktop_height,
         dispatcher,
+        encoder,
     } = params;
 
     let identity = TlsIdentityCtx::init_from_paths(cert_path, key_path)
         .context("loading TLS identity (is the certificate a valid PEM?)")?;
     let acceptor = identity.make_acceptor().context("building the TLS acceptor")?;
 
-    let make_encoder: display::EncoderFactory = Box::new(|| Box::new(FullFrameEncoder::new()) as Box<dyn Encoder>);
+    // One encoder per connection, built here rather than shared: the damage
+    // encoder's baseline is "what this client has already been sent", so two
+    // clients at different speeds must not read each other's history
+    // (ADR-0009 §1).
+    let make_encoder: display::EncoderFactory = match encoder {
+        EncoderKind::Damage => Box::new(|| Box::new(DamageEncoder::new()) as Box<dyn Encoder>),
+        EncoderKind::Full => Box::new(|| Box::new(FullFrameEncoder::new()) as Box<dyn Encoder>),
+    };
     let display = MacRdpDisplay::new(stream, desktop_width, desktop_height, make_encoder);
     let handler = MacRdpInput::new(dispatcher);
 
@@ -77,6 +88,6 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
         .with_bitmap_codecs(BitmapCodecs(Vec::new()))
         .build();
 
-    info!(%bind_addr, "serving RDP over TLS");
+    info!(%bind_addr, ?encoder, "serving RDP over TLS");
     server.run().await
 }

@@ -36,7 +36,9 @@ mod tests {
         let updates = encoder.encode(frame.clone()).expect("encode");
 
         assert_eq!(updates.len(), 1);
-        let FrameUpdate::Full { frame: encoded } = &updates[0];
+        let [FrameUpdate::Full { frame: encoded }] = updates.as_slice() else {
+            panic!("the full-frame encoder must never produce a region, got {updates:?}");
+        };
         assert_eq!(encoded.width, frame.width);
         assert_eq!(encoded.height, frame.height);
         assert_eq!(encoded.stride, frame.stride);

@@ -4,8 +4,24 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use serde::Deserialize;
+
+/// Which encoder turns frames into display updates (F-004.16).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EncoderKind {
+    /// Send only what changed (F-004). The default.
+    #[default]
+    Damage,
+    /// Send every frame whole, as waves 0–2 did.
+    ///
+    /// Kept as a diagnostic escape hatch, not as a supported mode: when the
+    /// picture looks wrong, this separates "damage tracking is wrong" from
+    /// "the path to the client is wrong" without a rebuild — the same split
+    /// that `--test-pattern` gives for capture.
+    Full,
+}
 
 pub const DEFAULT_BIND_ADDR: &str = "127.0.0.1";
 pub const DEFAULT_PORT: u16 = 3389;
@@ -58,6 +74,11 @@ pub struct Cli {
     /// "capture is wrong" from "the protocol path is wrong".
     #[arg(long, value_name = "WIDTHxHEIGHT")]
     pub test_pattern: Option<String>,
+
+    /// Encoder: damage (only what changed) or full (every frame whole)
+    /// [default: damage]
+    #[arg(long, value_name = "KIND")]
+    pub encoder: Option<EncoderKind>,
 }
 
 /// The same keys as [`Cli`], as they appear in the TOML file.
@@ -71,6 +92,7 @@ pub struct FileConfig {
     pub display: Option<u32>,
     pub max_fps: Option<u32>,
     pub log_level: Option<String>,
+    pub encoder: Option<EncoderKind>,
 }
 
 impl FileConfig {
@@ -93,6 +115,7 @@ pub struct Config {
     pub log_level: String,
     /// `Some((width, height))` when the synthetic pattern was requested.
     pub test_pattern: Option<(u32, u32)>,
+    pub encoder: EncoderKind,
 }
 
 impl Config {
@@ -124,6 +147,7 @@ impl Config {
                 .or_else(|| file.log_level.clone())
                 .unwrap_or_else(|| DEFAULT_LOG_LEVEL.to_owned()),
             test_pattern: cli.test_pattern.as_deref().map(parse_size).transpose()?,
+            encoder: cli.encoder.or(file.encoder).unwrap_or_default(),
         })
     }
 
@@ -214,6 +238,7 @@ mod tests {
             log_level: Some("trace".to_owned()),
             config: None,
             test_pattern: None,
+            encoder: Some(EncoderKind::Full),
         };
         let file = FileConfig {
             bind_addr: Some("10.0.0.1".parse().expect("valid IP")),
@@ -223,6 +248,7 @@ mod tests {
             display: Some(8),
             max_fps: Some(7),
             log_level: Some("error".to_owned()),
+            encoder: Some(EncoderKind::Damage),
         };
 
         let cfg = Config::resolve(&cli, &file).expect("resolve");
@@ -233,6 +259,7 @@ mod tests {
         assert_eq!(cfg.display, 2);
         assert_eq!(cfg.max_fps, 3);
         assert_eq!(cfg.log_level, "trace");
+        assert_eq!(cfg.encoder, EncoderKind::Full);
     }
 
     #[test]

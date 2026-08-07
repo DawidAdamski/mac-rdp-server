@@ -26,6 +26,7 @@ use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{ActiveStageBuilder, ActiveStageOutput};
 use mac_rdp_server::capture::FrameSource as _;
 use mac_rdp_server::capture::test_pattern::TestPatternSource;
+use mac_rdp_server::config::EncoderKind;
 use mac_rdp_server::input::{self, logging::LoggingSink};
 use mac_rdp_server::{session, tls};
 use tokio_rustls::rustls;
@@ -76,6 +77,7 @@ fn non_black_fraction(codecs: BitmapCodecs) -> f64 {
                         desktop_width: u16::try_from(PATTERN_WIDTH).expect("fits"),
                         desktop_height: u16::try_from(PATTERN_HEIGHT).expect("fits"),
                         dispatcher,
+                        encoder: EncoderKind::Damage,
                     })
                     .await;
                 });
@@ -155,6 +157,7 @@ fn reconnect_fractions(rounds: usize) -> Vec<f64> {
                         desktop_width: u16::try_from(PATTERN_WIDTH).expect("fits"),
                         desktop_height: u16::try_from(PATTERN_HEIGHT).expect("fits"),
                         dispatcher,
+                        encoder: EncoderKind::Damage,
                     })
                     .await;
                 });
@@ -170,6 +173,175 @@ fn reconnect_fractions(rounds: usize) -> Vec<f64> {
             })
             .await
     })
+}
+
+/// What one damage-tracking session looked like from the client's side.
+struct DamageObservation {
+    /// Every rectangle the client repainted, in arrival order.
+    rects: Vec<(u16, u16, u16, u16)>,
+    /// The counter of the test-pattern frame the image matched exactly, checked
+    /// **only after a partial update had been applied**.
+    ///
+    /// The distinction is the whole test. The session opens with a full frame,
+    /// which matches immediately and trivially — an earlier version of this
+    /// test recorded that match and then passed happily with region placement
+    /// deliberately broken. A match only means something once a region has had
+    /// the chance to put pixels in the wrong place.
+    matched_counter: Option<u64>,
+}
+
+/// Watches a damage-encoded session long enough for the test pattern's counter
+/// to tick, and records both what was repainted and whether the result is
+/// pixel-exact (F-004.20).
+fn observe_damage() -> DamageObservation {
+    let dir = std::env::temp_dir().join(format!("mac-rdp-damage-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let cert = dir.join("cert.pem");
+    let key = dir.join("key.pem");
+    tls::ensure_self_signed(&cert, &key).expect("generate certificate");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("reserve a port");
+    let addr = listener.local_addr().expect("read the port");
+    drop(listener);
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build runtime");
+
+    let client = std::thread::spawn(move || run_damage_client(addr));
+
+    runtime.block_on(async move {
+        let mut source = TestPatternSource::new(PATTERN_WIDTH, PATTERN_HEIGHT);
+        let stream = source.start().await.expect("start the frame source");
+        let dispatcher = input::spawn(|| Box::new(LoggingSink::new()), 16);
+
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async move {
+                let server = tokio::task::spawn_local(async move {
+                    let _ = session::run(session::SessionParams {
+                        bind_addr: addr,
+                        cert_path: &cert,
+                        key_path: &key,
+                        stream,
+                        desktop_width: u16::try_from(PATTERN_WIDTH).expect("fits"),
+                        desktop_height: u16::try_from(PATTERN_HEIGHT).expect("fits"),
+                        dispatcher,
+                        encoder: EncoderKind::Damage,
+                    })
+                    .await;
+                });
+
+                let observation = tokio::task::spawn_blocking(move || client.join().expect("client thread"))
+                    .await
+                    .expect("join client");
+
+                server.abort();
+                source.stop().await.ok();
+                let _ = std::fs::remove_dir_all(&dir);
+                observation
+            })
+            .await
+    })
+}
+
+fn run_damage_client(addr: SocketAddr) -> DamageObservation {
+    let (result, mut framed) = connect(addr, BitmapCodecs(Vec::new())).expect("connect to the server under test");
+    let size = result.desktop_size;
+    let mut image = DecodedImage::new(PixelFormat::RgbA32, size.width, size.height);
+
+    let mut stage = ActiveStageBuilder {
+        static_channels: result.static_channels,
+        user_channel_id: result.user_channel_id,
+        io_channel_id: result.io_channel_id,
+        message_channel_id: result.message_channel_id,
+        share_id: result.share_id,
+        compression_type: result.compression_type,
+        enable_server_pointer: result.enable_server_pointer,
+        pointer_software_rendering: result.pointer_software_rendering,
+    }
+    .build();
+
+    let mut rects = Vec::new();
+    let mut matched_counter = None;
+    let mut saw_partial = false;
+    let full_width = u16::try_from(PATTERN_WIDTH).expect("fits") - 1;
+    let full_height = u16::try_from(PATTERN_HEIGHT).expect("fits") - 1;
+
+    // Long enough for the pattern's one-per-second counter to tick a few times,
+    // which is what produces damage in the first place.
+    let deadline = std::time::Instant::now() + Duration::from_secs(6);
+    while std::time::Instant::now() < deadline {
+        let Ok((action, payload)) = framed.read_pdu() else {
+            break;
+        };
+        let Ok(outputs) = stage.process(&mut image, action, &payload) else {
+            break;
+        };
+        for out in outputs {
+            match out {
+                ActiveStageOutput::ResponseFrame(frame) => {
+                    if framed.write_all(&frame).is_err() {
+                        return DamageObservation { rects, matched_counter };
+                    }
+                }
+                ActiveStageOutput::GraphicsUpdate(rect) => {
+                    rects.push((rect.left, rect.top, rect.right, rect.bottom));
+                    saw_partial |=
+                        rect.left > 0 || rect.top > 0 || rect.right < full_width || rect.bottom < full_height;
+
+                    // Only look once a region has been applied, and check after
+                    // every update from then on: between the regions of one
+                    // frame the image is legitimately a mix of two frames, so a
+                    // miss means nothing — only a hit is information, and one
+                    // hit is all the assertion needs.
+                    if saw_partial && matched_counter.is_none() {
+                        matched_counter = matching_counter(&image);
+                    }
+                }
+                ActiveStageOutput::Terminate(_) => return DamageObservation { rects, matched_counter },
+                _ => {}
+            }
+        }
+    }
+
+    DamageObservation { rects, matched_counter }
+}
+
+/// Finds the test-pattern counter whose rendering the decoded image matches
+/// **exactly**, pixel for pixel.
+///
+/// This is the assertion that catches a misplaced region. A region written at
+/// the wrong offset leaves the right place stale *and* corrupts the wrong one,
+/// and either half of that breaks exact equality — whereas "some pixels
+/// changed" would happily pass.
+fn matching_counter(image: &DecodedImage) -> Option<u64> {
+    (0..=12).find(|counter| matches_pattern(image, *counter))
+}
+
+fn matches_pattern(image: &DecodedImage, counter: u64) -> bool {
+    let expected = mac_rdp_server::capture::test_pattern::render(PATTERN_WIDTH, PATTERN_HEIGHT, counter);
+    let decoded = image.data();
+    let decoded_stride = usize::from(image.width()) * 4;
+
+    for y in 0..PATTERN_HEIGHT {
+        for x in 0..PATTERN_WIDTH {
+            // Ours is BGRA (ADR-0005); the client decodes to RGBA. Alpha is not
+            // compared: the encoder is free to drop it.
+            let Some([b, g, r, _]) = expected.pixel(x, y) else {
+                return false;
+            };
+            let offset = (y as usize) * decoded_stride + (x as usize) * 4;
+            let Some(px) = decoded.get(offset..offset + 3) else {
+                return false;
+            };
+            if px != [r, g, b] {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 struct NoNetworkClient;
@@ -427,4 +599,46 @@ mod danger {
             ]
         }
     }
+}
+
+#[test]
+fn damage_updates_land_in_the_right_place_and_disturb_nothing_else() {
+    // F-004.20. Two things have to hold at once, and each catches a different
+    // way of getting damage tracking wrong:
+    //
+    //  * at least one update must be smaller than the screen — otherwise the
+    //    encoder is quietly sending full frames and "damage tracking" is a
+    //    label, not a behaviour;
+    //  * the finished image must equal a rendered pattern frame **exactly** —
+    //    a region written at the wrong offset leaves the right place stale and
+    //    corrupts the wrong one, and exact equality is what notices.
+    let observation = observe_damage();
+
+    assert!(
+        !observation.rects.is_empty(),
+        "the client repainted nothing at all; no updates arrived"
+    );
+
+    let full_width = u16::try_from(PATTERN_WIDTH).expect("fits") - 1;
+    let full_height = u16::try_from(PATTERN_HEIGHT).expect("fits") - 1;
+    let partial = observation
+        .rects
+        .iter()
+        .filter(|(left, top, right, bottom)| *left > 0 || *top > 0 || *right < full_width || *bottom < full_height)
+        .count();
+    assert!(
+        partial > 0,
+        "every one of the {} updates covered the whole screen; nothing was sent as a region. Rects: {:?}",
+        observation.rects.len(),
+        observation.rects
+    );
+
+    assert!(
+        observation.matched_counter.is_some(),
+        "after a region was applied, the decoded image never matched any rendering of the \
+         test pattern exactly — so a region landed in the wrong place or left stale pixels \
+         behind. {} updates, rects: {:?}",
+        observation.rects.len(),
+        observation.rects
+    );
 }

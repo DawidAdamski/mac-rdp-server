@@ -63,6 +63,13 @@ pub fn bitmap_update(frame: &Frame, x: u16, y: u16) -> Result<BitmapUpdate> {
 pub fn display_update(update: FrameUpdate) -> Result<DisplayUpdate> {
     match update {
         FrameUpdate::Full { frame } => Ok(DisplayUpdate::Bitmap(bitmap_update(&frame, 0, 0)?)),
+        // F-004: same conversion, non-zero placement. The bitmap carries only
+        // the changed rectangle; `x`/`y` say where it belongs on the desktop.
+        FrameUpdate::Region { x, y, frame } => {
+            let x = u16::try_from(x).with_context(|| format!("region x {x} does not fit in u16"))?;
+            let y = u16::try_from(y).with_context(|| format!("region y {y} does not fit in u16"))?;
+            Ok(DisplayUpdate::Bitmap(bitmap_update(&frame, x, y)?))
+        }
     }
 }
 

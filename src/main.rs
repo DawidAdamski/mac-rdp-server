@@ -200,6 +200,19 @@ async fn serve(
     let desktop_width = u16::try_from(width).context("desktop width does not fit in u16")?;
     let desktop_height = u16::try_from(height).context("desktop height does not fit in u16")?;
 
+    // F-004.9. The RDP bitmap encoder rejects widths that are not a multiple of
+    // 4 (`ironrdp-server/src/encoder/bitmap.rs:30`). Every real display satisfies
+    // this, so the assumption has been silent since wave 0 — say it out loud
+    // here rather than let it surface as a bare "Width must be a multiple of 4"
+    // from inside the protocol engine, with no hint of what to do about it.
+    if !desktop_width.is_multiple_of(4) {
+        anyhow::bail!(
+            "the desktop is {desktop_width} px wide, which RDP bitmap encoding cannot carry — \
+             it requires a multiple of 4. Pick another display with --display, or force a size \
+             with --test-pattern WIDTHxHEIGHT to check the rest of the pipeline."
+        );
+    }
+
     let server = session::run(session::SessionParams {
         bind_addr: config.socket_addr(),
         cert_path: &config.cert_path,
@@ -208,6 +221,7 @@ async fn serve(
         desktop_width,
         desktop_height,
         dispatcher,
+        encoder: config.encoder,
     });
 
     tokio::select! {

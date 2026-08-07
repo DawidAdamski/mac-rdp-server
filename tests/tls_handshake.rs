@@ -18,6 +18,7 @@ use ironrdp_server::tokio_rustls::rustls::pki_types::{CertificateDer, ServerName
 use ironrdp_server::tokio_rustls::rustls::{ClientConfig, DigitallySignedStruct, SignatureScheme};
 use mac_rdp_server::capture::FrameSource as _;
 use mac_rdp_server::capture::test_pattern::TestPatternSource;
+use mac_rdp_server::config::EncoderKind;
 use mac_rdp_server::input::{self, logging::LoggingSink};
 use mac_rdp_server::{session, tls};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -139,6 +140,7 @@ async fn server_negotiates_x224_then_completes_tls() {
                         desktop_width: 320,
                         desktop_height: 240,
                         dispatcher,
+                        encoder: EncoderKind::Damage,
                     })
                     .await;
                 }
