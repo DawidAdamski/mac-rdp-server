@@ -247,6 +247,103 @@ nie występuje. Warunek wyzwolenia nie pokrywa zdiagnozowanego objawu.
 3. **AC-3 (sen/budzenie) i AC-6 (pięć cykli) nie zostały sprawdzone** — sesja
    zakończyła się na scenariuszu z klapą.
 
+## 8a. Wynik weryfikacji iteracji 1b (2026-08-07, drugie podejście)
+
+**Watchdog działa. AC-2 nierozstrzygnięte. Ujawniona nowa, potwierdzona usterka.**
+
+### Przebieg
+
+Ten sam scenariusz (ekran zewnętrzny 5120×1440, klapa zamknięta, klient
+podłączony), otwarcie klapy o ~11:40:27. Obserwacja właściciela — **inna niż
+poprzednio**: obraz RDP **nie zamarł**. Zniknęły z niego okna, bo macOS
+przeniósł je na dołożony ekran wbudowany. Kursor prowadzony w lewą część
+pulpitu RDP **wychodził na ekran laptopa**. Zamknięcie klapy przywróciło stan
+pierwotny.
+
+### Co pokazują liczniki
+
+| Okno 10 s | `received` | `rejected` | `delivered` | % pustych |
+|---|---|---|---|---|
+| zdrowy baseline | +293 | 0 | — | 0% |
+| 40:21 → 40:31 | +228 | +62 | +183 | 21% |
+| 40:31 → 40:41 | +85 | +208 | +85 | 71% |
+| 40:41 → 40:51 | +56 | +219 | +56 | 80% |
+| 40:51 → 41:01 | +93 | +181 | +93 | 66% |
+| 41:01 → 41:11 | +237 | +54 | +189 | 19% |
+
+**Awaria jest częściowa, nie całkowita.** To istotna korekta diagnozy z §2
+i §8. ScreenCaptureKit przez cały czas oddawał ~29 próbek na sekundę — rosnący
+był wyłącznie **udział próbek pustych** (21% → 80%), a nie ich brak. Dlatego
+tym razem obraz u klienta żył, tylko z mniejszą płynnością, zamiast zamarznąć.
+
+### Co jest potwierdzone
+
+- **F-007.14/.15/.16 działają.** Watchdog wyzwolił się dwa razy:
+  `stalled_for_ms=3499` (11:40:43) i `stalled_for_ms=3000` (11:40:55),
+  za każdym razem z następującym `capture recovered`. Reguła „`received` stoi,
+  `rejected` rośnie" zadziałała mimo częściowej degradacji, bo przerwy bez
+  ani jednej dobrej klatki przekraczały 3 s.
+- **Brak zalewania logu.** 11 linii `dropping frame` i **2** linie `recovering`
+  przez ~45 s awarii. Kontrola z Testu 5 („`recovering` nie może się mnożyć")
+  przechodzi — watchdog nie kręci pętli.
+- **F-007.9** — klient nie został rozłączony.
+
+### Czego NIE da się z tego logu orzec
+
+**Czy odtworzenie strumienia cokolwiek naprawiło.** Powrót do zdrowia
+(11:41:01 → 11:41:11) nastąpił po drugim `capture recovered`, ale **także po
+zamknięciu klapy przez właściciela** — log nie pozwala tych dwóch przyczyn
+rozdzielić. Do tego awaria była częściowa, więc obraz i tak by się nie zawiesił.
+**AC-2 pozostaje niezaliczone przez brak rozstrzygnięcia**, nie przez porażkę.
+
+Rozstrzygnięcie wymaga jednego celowanego testu: otworzyć klapę i **nie
+zamykać jej** przez pełne 60 s, obserwując, czy `received` wraca do ~290/10 s
+przy wciąż otwartej klapie.
+
+### Nowa usterka, potwierdzona: geometria wejścia jest zamrożona
+
+Otwarta kwestia 2 z §8 **potwierdziła się**. „Kursor prowadzony w lewą część
+pulpitu RDP wychodził na ekran laptopa" to dokładnie objaw nieaktualnego
+origin: `selected_geometry` (`src/main.rs:41`) wylicza `origin_x`/`origin_y`/
+`scale_factor` **raz, przy starcie**, i przekazuje je do `CgEventSink`.
+Dołożenie ekranu przesuwa układ współrzędnych macOS, a my dalej przeliczamy
+piksele pulpitu przez stary origin — więc współrzędne lądują na sąsiednim
+ekranie.
+
+To jest poważniejsze dla użytkownika niż sama płynność obrazu: sesja, w której
+kursor ucieka poza pulpit, jest **bezużyteczna**, nawet gdy obraz jest żywy.
+
+- **F-007.17** (MUST) Geometria używana do przeliczania współrzędnych wejścia
+  MUSI być odświeżana po rekonfiguracji ekranów, nie tylko przy starcie.
+  Kliknięcie MUSI trafiać tam, gdzie wskazuje kursor, również po dołożeniu
+  lub odjęciu ekranu w trakcie sesji.
+- **F-007.17a** (MUST) Odświeżenie NIE MOŻE łamać granicy z
+  `01-architecture.md` §1: `capture` nadal nie zna wejścia, `input` nadal nie
+  zna ScreenCaptureKit. Wymianę pośredniczy nasz własny typ (`DisplayInfo` /
+  `ScreenGeometry`) przez kanał, którego oba końce wpina `main` — tak samo,
+  jak dziś wpina `FrameStream` i `InputDispatcher`.
+- **F-007.17b** (MUST) Test jednostkowy MUSI pokryć samo przeliczanie przy
+  zmienionym origin (czyste, bez macOS): ten sam piksel pulpitu przed i po
+  przesunięciu origin daje różne punkty macOS, zgodnie z nowym układem.
+
+### Drobiazg wart naprawienia przy okazji
+
+- **F-007.18** (SHOULD) Licznik rate-limitu logu odrzuceń
+  (`CaptureStats::should_log_rejection`) jest **kumulatywny i nigdy się nie
+  zeruje**. Po tej sesji stoi na 512, więc pierwsza linia **następnej** awarii
+  pojawi się dopiero przy 1024. odrzuceniu — czyli po ~35 s ciszy w logu.
+  Licznik POWINIEN być zerowany po udanym odtworzeniu strumienia, żeby kolejny
+  incydent był widoczny od razu.
+
+### Zachowanie macOS, którego nie naprawimy — do dokumentacji użytkownika
+
+Po otwarciu klapy **macOS sam przeniósł okna** na ekran wbudowany, bo stał się
+on ekranem głównym. Z punktu widzenia użytkownika RDP wygląda to jak „zniknęły
+mi okna", ale to nie jest zachowanie serwera i nie da się go stąd zmienić.
+Realne odpowiedzi to multi-monitor (**F-105**) albo przechwytywanie ekranu
+głównego zamiast wybranego indeksem. Do opisania wprost w dokumentacji
+użytkownika (**F-110**) jako znane zachowanie systemu.
+
 ## 9. Status
 
 **Approved** (2026-07-27) — z zakresem pierwszej iteracji poniżej.
@@ -255,10 +352,16 @@ nie występuje. Warunek wyzwolenia nie pokrywa zdiagnozowanego objawu.
 Zalicza AC-1, AC-7 i F-007.9; **nie zalicza AC-2** z powodu opisanego w §8.
 AC-3, AC-4, AC-5, AC-6 niesprawdzone.
 
-**Iteracja 1b: Approved i zaimplementowana** (2026-08-07). F-007.14, F-007.14a,
-F-007.15, F-007.16 — watchdog zastoju jako drugi wyzwalacz odtwarzania.
-Nowy moduł `src/capture/watchdog.rs` (czysty, bez SCK) + drugie ramię
-`tokio::select!` w `supervise`. **Czeka na ręczną weryfikację AC-2.**
+**Iteracja 1b: Approved, zaimplementowana, zweryfikowana częściowo**
+(2026-08-07). F-007.14, F-007.14a, F-007.15, F-007.16 — watchdog zastoju jako
+drugi wyzwalacz odtwarzania. Nowy moduł `src/capture/watchdog.rs` (czysty, bez
+SCK) + drugie ramię `tokio::select!` w `supervise`. **Wyzwalacz potwierdzony
+w boju** (dwa wyzwolenia, bez zalewania logu); **AC-2 nierozstrzygnięte** —
+patrz §8a.
+
+**Iteracja 1c (Draft):** F-007.17, F-007.17a, F-007.17b (odświeżanie geometrii
+wejścia — usterka **potwierdzona**), F-007.18 (zerowanie rate-limitu logu po
+odtworzeniu). Czeka na approve właściciela.
 
 CI zielone: **91** testów jednostkowych (81 + 10 na watchdogu), test 3
 reconnectów (`repeated_reconnects_each_see_the_picture`), clippy `-D warnings`,
