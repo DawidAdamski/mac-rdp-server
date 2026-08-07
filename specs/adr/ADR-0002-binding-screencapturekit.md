@@ -111,9 +111,18 @@ pub trait CMSampleBufferSCExt {
 **Konsekwencje:**
 1. **Warunek rewizji nie zachodzi.** Nie ma powodu przechodzić na
    `objc2-screen-capture-kit`. Decyzja zostaje.
-2. **F-004 (damage tracking) dostaje damage od systemu**, zamiast liczyć własny
+2. ~~**F-004 (damage tracking) dostaje damage od systemu**, zamiast liczyć własny
    diff klatek. To zmienia kształt tego speca: `dirty_rects()` jako źródło
-   podstawowe, własny diff co najwyżej jako fallback, gdy atrybut jest pusty.
+   podstawowe, własny diff co najwyżej jako fallback, gdy atrybut jest pusty.~~
+
+   **Skorygowane 2026-08-07 przez [ADR-0009](ADR-0009-zrodlo-damage.md).**
+   Sama dostępność `dirty_rects()` nie wystarcza: prostokąty opisują różnicę
+   między dwiema **kolejnymi** klatkami, a kanał `watch` klatki **koalescuje**
+   (`01-architecture.md` §4b), więc damage klatek porzuconych przepadłby i dałby
+   duchy na ekranie. Role są odwrócone: źródłem prawdy jest własny diff wobec
+   ostatniej **wysłanej** klatki, a `dirty_rects()` wchodzi dopiero jako
+   podpowiedź przyspieszająca porównanie. Reszta tego ADR-a (wybór bindingu)
+   pozostaje w mocy.
 3. Fala 1 już korzysta z `frame_status()` — klatki `Idle`/`Blank` nie niosą
    nowej treści i są pomijane, zamiast być kodowane i wysyłane bez potrzeby.
 

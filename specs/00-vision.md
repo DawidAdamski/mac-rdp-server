@@ -1,7 +1,8 @@
 # 00 — Wizja
 
-**Status:** Approved (2026-07-22)
+**Status:** Approved (2026-07-22); §5 i §9 zrewidowane 2026-08-07 (Draft — do approve'u)
 **Data:** 2026-07-22
+**Ostatnia zmiana:** 2026-08-07 — rewizja non-goals po domknięciu MVP, nowa §9 (dystrybucja)
 
 ## 1. Po co to jest
 
@@ -46,11 +47,28 @@ Jeden monitor, kodowanie bitmap (RDP 6.0 compression).
 - **Inne platformy.** Tylko macOS. Zero warstw abstrakcji „na wszelki wypadek"
   pod Windows/Linux.
 - **Sesje wielu użytkowników / RDS.** Serwujemy konsolę zalogowanego użytkownika,
-  nie tworzymy osobnych sesji jak Windows Server.
+  nie tworzymy osobnych sesji jak Windows Server. **To jest fakt istotny dla
+  bezpieczeństwa i prywatności, nie tylko techniczny:** osoba stojąca przy Macu
+  widzi dokładnie to samo, co widzi klient zdalny. Musi to być powiedziane
+  wprost w dokumentacji użytkownika (F-110), a nie odkrywane w praktyce.
 - **Własna implementacja TLS ani kryptografii.** rustls i już.
 - **GUI aplikacji.** Binarka CLI + plik konfiguracyjny. GUI ewentualnie kiedyś,
   jako osobny projekt na tym samym rdzeniu.
-- **Produkcyjny model uprawnień / hardening** przed MVP. Najpierw ma działać.
+  **Doprecyzowanie (2026-08-07):** bundle `.app` z `LSUIElement = true` **nie
+  łamie** tego non-goala. To bundle bez interfejsu — bez okna, bez ikony
+  w Docku, bez menu. Jest potrzebny wyłącznie dlatego, że macOS przypisuje
+  uprawnienia TCC do tożsamości aplikacji; bez własnego bundle'a serwer
+  dziedziczy uprawnienia Terminala, a to znaczy, że instrukcja instalacji
+  brzmi „nadaj iTermowi prawo do nagrywania ekranu". Bundle jest nośnikiem
+  tożsamości, nie interfejsem.
+
+### Non-goal wygasły
+
+- ~~**Produkcyjny model uprawnień / hardening** przed MVP. Najpierw ma
+  działać.~~ — **wygasło 2026-08-07.** MVP z §4 jest osiągnięte (Fale 0–2
+  Verified), więc powód odłożenia zniknął. Hardening i uwierzytelnianie
+  stają się **Falą 4** i są warunkiem koniecznym §9. Do czasu ich wdrożenia
+  obowiązuje reguła: serwer nasłuchuje wyłącznie na loopbacku.
 
 ## 6. Słownik pojęć
 
@@ -98,3 +116,60 @@ Przy wątpliwościach dotyczących RDP sięgamy najpierw tutaj:
 
 Spec-driven. Kolejność jest sztywna: **spec → approve → plan → kod → weryfikacja
 względem kryteriów akceptacji**. Szczegóły w `CLAUDE.md`.
+
+## 9. Model wydania i dystrybucji
+
+**Dodane 2026-08-07.** Do tej pory wizja opisywała, *co* budujemy. Ta sekcja
+mówi, *komu to oddajemy i na jakich warunkach* — bo od tego zależą wymagania
+Fal 4 i 5.
+
+### Czym to ma być dla użytkownika
+
+**Darmowe oprogramowanie open source**, z możliwością dobrowolnego wsparcia
+autora. Nie ma wersji płatnej, nie ma funkcji za paywallem, nie ma telemetrii.
+Donacja jest podziękowaniem, nie zakupem — nie kupuje priorytetu w zgłoszeniach
+ani obietnicy wsparcia.
+
+Licencja: **MIT OR Apache-2.0** (jak już deklaruje `Cargo.toml`; pliki licencji
+dochodzą w F-110).
+
+### Definicja „da się zainstalować"
+
+Użytkownik, który nie zna Rusta i nie chce znać, wykonuje:
+
+1. jedno polecenie instalacji,
+2. nadanie dwóch uprawnień w System Settings (Screen Recording, Accessibility),
+3. ustawienie hasła dostępu,
+4. połączenie klientem RDP.
+
+Każdy z tych kroków musi mieć czytelny komunikat, gdy się nie uda. Kontrakt
+z `01-architecture.md` — brak uprawnienia nigdy nie panikuje, zawsze mówi, co
+kliknąć — rozciąga się na instalację.
+
+### Definicja „da się bezpiecznie używać"
+
+Serwer zdalnego dostępu to cel ataku. Trzy niezmienniki, których nie negocjujemy
+po Fali 4:
+
+1. **Nasłuch poza loopbackiem wymaga skonfigurowanego uwierzytelniania.**
+   Bez niego serwer odmawia startu — z instrukcją, nie z błędem.
+2. **Uwierzytelnienie poprzedza sesję graficzną** (NLA/CredSSP). Klient nie
+   widzi ani jednego piksela przed zalogowaniem.
+3. **Hasło dostępu jest osobne od hasła konta macOS.** Serwer nigdy nie prosi
+   o poświadczenia systemowe i nigdy ich nie przechowuje. Kompromitacja serwera
+   nie oddaje konta.
+
+### Ograniczenie przyjęte świadomie: brak Developer ID
+
+Właściciel nie ma konta Apple Developer Program (decyzja 2026-08-07: „nie
+teraz"). Konsekwencje, żeby nie były odkrywane w trakcie:
+
+- Brak notaryzacji ⇒ artefakt pobrany przeglądarką zostanie zablokowany przez
+  Gatekeeper. Dlatego kanałem głównym jest **tap Homebrew budujący ze źródeł**,
+  a nie `.dmg` do pobrania.
+- Podpis ad-hoc zmienia się przy każdym buildzie ⇒ granty TCC mogą wymagać
+  ponownego nadania po aktualizacji. F-106 sprawdza, czy lokalny certyfikat
+  self-signed daje stabilną tożsamość i rozwiązuje to.
+
+Projekt ma być zbudowany tak, żeby **dołożenie Developer ID było zmianą
+konfiguracji wydania, nie zmianą architektury.**
