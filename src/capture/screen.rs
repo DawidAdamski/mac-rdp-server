@@ -29,12 +29,28 @@ use tracing::{debug, info, trace, warn};
 
 use super::backoff::Backoff;
 use super::placeholder::{self, Placeholder};
+use super::watchdog::StallWatchdog;
 use super::{CaptureStats, DisplayId, DisplayInfo, Frame, FrameSource, FrameStream, PixelFormat};
 
 /// Backoff bounds for stream recovery (F-007.3): quick first retry, capped so a
 /// permanently missing display settles instead of spinning.
 const RECOVERY_MIN_BACKOFF: Duration = Duration::from_millis(500);
 const RECOVERY_MAX_BACKOFF: Duration = Duration::from_secs(5);
+
+/// How often the supervisor samples the capture counters looking for a stall
+/// (F-007.14). Comfortably longer than a frame interval at any sane `max_fps`,
+/// so a healthy stream always shows progress between two polls.
+const WATCHDOG_POLL: Duration = Duration::from_millis(500);
+
+/// How long rejects must keep arriving with no delivered frame before the
+/// stream is declared stalled. Long enough to ride out a hiccup, short enough
+/// that a user watching a frozen desktop sees it come back (F-007.14).
+const WATCHDOG_STALL_THRESHOLD: Duration = Duration::from_secs(3);
+
+/// How many rejects must accumulate before the threshold means anything. Keeps
+/// one transient bad sample on an idle desktop from triggering a rebuild, and
+/// keeps the watchdog honest at `--max-fps 1` (F-007.14a).
+const WATCHDOG_MIN_REJECTIONS: u64 = 10;
 
 /// How many frames ScreenCaptureKit may buffer. Low, because we coalesce
 /// anyway and a deep queue only adds latency.
@@ -471,6 +487,17 @@ struct SupervisorParams {
     stop_rx: oneshot::Receiver<()>,
 }
 
+/// Why the supervisor decided the current stream has to be rebuilt.
+///
+/// Two triggers, because ScreenCaptureKit has two ways of failing (F-007 §8).
+enum Trigger {
+    /// `did_stop_with_error`: the framework told us the stream stopped.
+    Reported(String),
+    /// The stream never stopped but produces only unusable samples — the
+    /// failure mode that opening the laptop lid actually causes (F-007.14).
+    Stalled(Duration),
+}
+
 /// Owns the live stream, rebuilding it after an unexpected stop until asked to
 /// quit (F-007.2, F-007.8). Runs as its own task so a rebuild never blocks the
 /// server loop or ScreenCaptureKit's delivery thread.
@@ -489,37 +516,69 @@ async fn supervise(params: SupervisorParams) {
 
     let mut current = initial;
     let mut backoff = Backoff::new(RECOVERY_MIN_BACKOFF, RECOVERY_MAX_BACKOFF);
+    let mut watchdog = StallWatchdog::new(WATCHDOG_STALL_THRESHOLD, WATCHDOG_MIN_REJECTIONS);
+
+    let mut ticker = tokio::time::interval(WATCHDOG_POLL);
+    // `interval` yields its first tick immediately; spend it here so the loop
+    // starts with a real wait. Delay (not Burst) on missed ticks: a recovery
+    // that takes seconds must not be followed by a flurry of catch-up polls.
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    ticker.tick().await;
 
     loop {
-        tokio::select! {
+        let trigger = tokio::select! {
             _ = &mut stop_rx => break,
             death = death_rx.recv() => {
                 let Some(reason) = death else { break };
-                warn!(%reason, display = display_id.0, "capture stream stopped unexpectedly; recovering");
-                // Best effort on the dead stream; a clean stop is not reported
-                // back to the delegate, so this cannot loop us.
-                let _ = current.stop_capture();
-                match recover(
-                    display_id,
-                    desktop,
-                    max_fps,
-                    &tx,
-                    &stats,
-                    &death_tx,
-                    &mut backoff,
-                    &mut death_rx,
-                    &mut stop_rx,
-                )
-                .await
-                {
-                    Some(stream) => {
-                        current = stream;
-                        backoff.reset();
-                        info!(display = display_id.0, "capture recovered");
-                    }
-                    None => break,
+                Trigger::Reported(reason)
+            }
+            _ = ticker.tick() => {
+                match watchdog.observe(&stats.snapshot(), Instant::now()) {
+                    Some(elapsed) => Trigger::Stalled(elapsed),
+                    None => continue,
                 }
             }
+        };
+
+        // F-007.16: say which trigger fired. Last time this failed, the absence
+        // of a recovery line was the whole diagnosis — the two paths must stay
+        // distinguishable in the log.
+        match &trigger {
+            Trigger::Reported(reason) => {
+                warn!(%reason, display = display_id.0, "capture stream stopped unexpectedly; recovering");
+            }
+            Trigger::Stalled(elapsed) => warn!(
+                display = display_id.0,
+                stalled_for_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
+                "capture stream is alive but delivering no usable frames (stale content filter?); recovering"
+            ),
+        }
+
+        // Best effort on the old stream; a clean stop is not reported back to
+        // the delegate, so this cannot loop us.
+        let _ = current.stop_capture();
+        match recover(
+            display_id,
+            desktop,
+            max_fps,
+            &tx,
+            &stats,
+            &death_tx,
+            &mut backoff,
+            &mut death_rx,
+            &mut stop_rx,
+        )
+        .await
+        {
+            Some(stream) => {
+                current = stream;
+                backoff.reset();
+                // The counters are shared across streams, so the new one must
+                // be judged on its own evidence.
+                watchdog.reset();
+                info!(display = display_id.0, "capture recovered");
+            }
+            None => break,
         }
     }
 

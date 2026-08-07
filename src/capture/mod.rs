@@ -7,6 +7,7 @@ pub mod canvas;
 pub mod placeholder;
 pub mod screen;
 pub mod test_pattern;
+mod watchdog;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};

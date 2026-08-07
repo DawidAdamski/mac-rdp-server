@@ -34,6 +34,12 @@ Potwierdzone osobno: **reconnect przy zdrowym capture działa** (trzy pod rząd,
   przez `SCStreamDelegateTrait::did_stop_with_error` (kanoniczne powiadomienie,
   potwierdzone w źródle 8.0.1). Strumień MUSI być tworzony przez
   `SCStream::new_with_delegate`.
+
+  > **Niewystarczające — patrz §8 (weryfikacja 2026-08-07).** To wymaganie jest
+  > poprawne, ale **nie pokrywa trybu awarii opisanego w §2**: przy
+  > rekonfiguracji ekranów strumień nie umiera i `did_stop_with_error` się nie
+  > wywołuje — strumień dalej oddaje próbki, tyle że bez bufora obrazu.
+  > Drugi wyzwalacz: **F-007.14** (watchdog zastoju).
 - **F-007.2** (MUST) Po `did_stop_with_error` źródło MUSI spróbować **odtworzyć
   strumień** dla tego samego logicznego ekranu (po `DisplayId`): ponowna
   enumeracja `SCShareableContent`, nowy `SCContentFilter`, nowy `SCStream`,
@@ -147,13 +153,132 @@ Potwierdzone osobno: **reconnect przy zdrowym capture działa** (trzy pod rząd,
    więc odtwarzanie nie wyzwoli się przy normalnym Ctrl-C — dobrze. Ale trzeba
    uważać, by przy `stop()` nie wyścignąć się z trwającym odtwarzaniem.
 
-## 8. Status
+## 8. Wynik weryfikacji iteracji 1 (2026-08-07)
+
+**Weryfikacja ręczna właściciela: NIEZALICZONA.** AC-2 nie przechodzi.
+
+### Przebieg
+
+Serwer na ekranie zewnętrznym (`Display 3`, 5120×1440, scale 1.0), klapa
+MacBooka zamknięta, klient podłączony. **Otwarcie klapy** dołożyło ekran
+wbudowany. Obserwacja właściciela: połączenie RDP **nie zostało zerwane**,
+obraz u klienta **zamarł i nie wrócił**, na fizycznych ekranach Mac reagował
+normalnie. **Zamknięcie klapy** przywróciło działanie.
+
+### Co zadziałało
+
+- **F-007.9 — połączenie przeżyło rekonfigurację.** To jest poprawa wobec
+  incydentu z 2026-07-24, gdzie sesja padała. Klient wytrzymał.
+- **F-007.5 / AC-7 — rate limiting działa wzorowo.** Trwała awaria dała
+  **13 linii** przez ~110 s zamiast tysięcy. Zgadza się co do jednej
+  z limiterem `n < 3 || n.is_power_of_two()` (`CaptureStats::should_log_rejection`):
+  wpisy dla n = 0, 1, 2, 4, … 2048, czyli **ponad 2048 odrzuconych klatek**.
+- **F-007.10 — potwierdzony, niezałatwiony.** W logu jest
+  `ERROR ironrdp_server::server: Connection error … Connection reset by peer
+  (os error 54)`. To log IronRDP, nie nasz, i nadal na poziomie `ERROR`.
+
+### Przyczyna niezaliczenia AC-2 — błąd w samym F-007.1
+
+**Wyzwalacz odtwarzania jest niewłaściwy.** W logu **nie ma** ani jednej linii
+`capture stream stopped unexpectedly; recovering`, ani
+`recovery attempt failed; backing off`. Znaczy to, że
+`SCStreamDelegateTrait::did_stop_with_error` **nigdy się nie wywołał**, a więc
+cała ścieżka odtwarzania (`supervise` → `recover` → `try_rebuild`,
+`src/capture/screen.rs:477-617`) nie ruszyła ani razu.
+
+Strumień **nie umarł**. Strumień **zdegradował się po cichu**: dalej wołał
+`did_output_sample_buffer`, tyle że z próbkami bez bufora obrazu
+(`FrameError::NoImageBuffer`).
+
+To jest błąd w wymaganiu, nie w implementacji. F-007.1 nazywa
+`did_stop_with_error` „kanonicznym powiadomieniem" o śmierci strumienia — i to
+jest prawda, ale **tryb awarii opisany w §2 tego samego speca nie jest śmiercią
+strumienia.** §2 opisał go dokładnie („oddaje próbki bez bufora obrazu"),
+a mimo to iteracja 1 podpięła odtwarzanie pod zdarzenie, które w tym trybie
+nie występuje. Warunek wyzwolenia nie pokrywa zdiagnozowanego objawu.
+
+### Zmiana speca — iteracja 1b (**Approved** 2026-08-07)
+
+- **F-007.14** (MUST) Odtwarzanie strumienia MUSI mieć **drugi wyzwalacz,
+  niezależny od delegata: watchdog zastoju.** Jeżeli przez czas dłuższy niż
+  próg licznik `rejected` rośnie, a `received` nie drgnął, źródło MUSI uznać
+  strumień za martwy i wejść w tę samą ścieżkę co przy `did_stop_with_error`
+  (`recover`, z backoffem F-007.3).
+- **F-007.14a** (MUST) Watchdog NIE MOŻE reagować na **statyczny pulpit**.
+  Rozróżnienie jest już w licznikach i jest jednoznaczne
+  (`src/capture/mod.rs`, `CaptureStats`):
+
+  | Sytuacja | `received` | `skipped` | `rejected` |
+  |---|---|---|---|
+  | Zdrowy, coś się dzieje | rośnie | — | — |
+  | Zdrowy, pulpit statyczny | stoi | **rośnie** | stoi |
+  | **Filtr unieważniony (ten incydent)** | stoi | — | **rośnie** |
+
+  Wyzwalaczem jest wyłącznie trzeci wiersz. Pulpit statyczny podbija `skipped`
+  (klatki `Idle`/`Blank`), więc watchdog oparty na „braku klatek" byłby błędny
+  i przebudowywałby strumień co kilka sekund na bezczynnym Macu.
+- **F-007.15** (MUST) Logika watchdoga MUSI być czysta i pokryta testem
+  jednostkowym bez SCK: decyzja liczona z dwóch migawek `StatsSnapshot`
+  i upływu czasu. Testy: zastój odrzuceń ⇒ wyzwolenie; pulpit statyczny
+  (rosnący `skipped`) ⇒ brak wyzwolenia; powrót `received` ⇒ reset licznika.
+- **F-007.16** (SHOULD) Log przy wyzwoleniu watchdoga POWINIEN wprost mówić,
+  że to zastój, a nie zgłoszona śmierć strumienia — inaczej przy następnej
+  diagnozie znów nie będzie wiadomo, którą ścieżką poszło odtwarzanie.
+
+### Otwarte kwestie z tej weryfikacji
+
+1. **Czy `try_rebuild` w ogóle wyleczy ten przypadek?** Ścieżka nigdy nie
+   ruszyła, więc **nie wiemy**. Hipoteza (§2 tego speca): rekonfiguracja
+   unieważnia `SCContentFilter`, a `try_rebuild` buduje świeży filtr z nowo
+   wyliczonej `SCShareableContent`, więc powinno pomóc. **To jest hipoteza do
+   potwierdzenia pomiarem, nie fakt.** Gdyby się nie potwierdziła, kolejnym
+   krokiem jest `CGDisplayRegisterReconfigurationCallback` — kanoniczne
+   powiadomienie o rekonfiguracji ekranów, czyli wyzwalacz trafiający
+   w przyczynę, a nie w objaw. Kosztuje dodatkowe FFI, więc nie wchodzi
+   „na wszelki wypadek".
+2. **Geometria inputu jest zamrożona na starcie.** `selected_geometry`
+   (`src/main.rs:41`) liczy `origin_x`/`origin_y`/`scale_factor` raz i przekazuje
+   do `CgEventSink`. Po rekonfiguracji układu ekranów origin wybranego ekranu
+   może się przesunąć, a wtedy współrzędne bezwzględne trafiają obok.
+   **Ten incydent tego nie potwierdza** — obraz był zamrożony, więc nie dało
+   się ocenić trafności kliknięć. Tania weryfikacja: przy otwartej klapie
+   sprawdzić, czy kliknięcie trafia tam, gdzie wskazuje kursor. Wymaganie
+   dopiszemy dopiero po potwierdzeniu.
+3. **AC-3 (sen/budzenie) i AC-6 (pięć cykli) nie zostały sprawdzone** — sesja
+   zakończyła się na scenariuszu z klapą.
+
+## 9. Status
 
 **Approved** (2026-07-27) — z zakresem pierwszej iteracji poniżej.
-**Iteracja 1 zaimplementowana** (2026-07-27, commit „F-007.1/.2/.3…") —
-czeka na ręczną weryfikację właściciela (AC-2, AC-3, AC-5, AC-6, AC-7).
-CI zielone: 81 testów jednostkowych (w tym backoff), test 3 reconnectów
-(`repeated_reconnects_each_see_the_picture`), clippy `-D warnings`.
+
+**Iteracja 1: zaimplementowana, weryfikacja NIEZALICZONA** (2026-08-07).
+Zalicza AC-1, AC-7 i F-007.9; **nie zalicza AC-2** z powodu opisanego w §8.
+AC-3, AC-4, AC-5, AC-6 niesprawdzone.
+
+**Iteracja 1b: Approved i zaimplementowana** (2026-08-07). F-007.14, F-007.14a,
+F-007.15, F-007.16 — watchdog zastoju jako drugi wyzwalacz odtwarzania.
+Nowy moduł `src/capture/watchdog.rs` (czysty, bez SCK) + drugie ramię
+`tokio::select!` w `supervise`. **Czeka na ręczną weryfikację AC-2.**
+
+CI zielone: **91** testów jednostkowych (81 + 10 na watchdogu), test 3
+reconnectów (`repeated_reconnects_each_see_the_picture`), clippy `-D warnings`,
+`cargo check --locked`.
+
+### Czego szukać w logu przy ponownej weryfikacji AC-2
+
+Po otwarciu klapy, w ciągu kilku sekund, powinna pojawić się linia:
+
+```
+WARN … capture stream is alive but delivering no usable frames (stale content filter?); recovering  display=3 stalled_for_ms=3000
+```
+
+a po niej `capture recovered`. Trzy możliwe wyniki i co każdy znaczy:
+
+| Co widać | Wniosek |
+|---|---|
+| `…recovering` + `capture recovered` + **obraz wraca** | AC-2 zaliczone, hipoteza „stale filter" potwierdzona |
+| `…recovering` + `capture recovered`, ale **obraz nadal zamrożony** | Wyzwalacz działa, `try_rebuild` nie leczy. Następny krok: `CGDisplayRegisterReconfigurationCallback` (§8, otwarta kwestia 1) |
+| **brak** linii `…recovering` | Watchdog nie wyzwolił — do sprawdzenia progi `WATCHDOG_*` w `src/capture/screen.rs` |
 
 ### Zakres iteracji 1 (2026-07-27, decyzja właściciela)
 
