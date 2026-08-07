@@ -1,7 +1,8 @@
 # F-007 — Stabilność: przeżyć rekonfigurację ekranu, sen/budzenie i reconnect
 
 - **Fala:** 3 (wyciągnięta na początek Fali 3, bo blokuje realne używanie)
-- **Status:** Draft
+- **Status:** Implemented (iteracje 1, 1b, 1c) — AC-1/2/5/7 zaliczone,
+  AC-3 i AC-6 do weryfikacji zamykającej falę, AC-4 czeka na F-006
 - **Data:** 2026-07-24
 - **ADR:** ADR-0002 (SCK), ADR-0001 (silnik)
 - **Powód powstania:** otwarcie klapy MacBooka w trakcie sesji zabiło strumień
@@ -344,13 +345,107 @@ Realne odpowiedzi to multi-monitor (**F-105**) albo przechwytywanie ekranu
 głównego zamiast wybranego indeksem. Do opisania wprost w dokumentacji
 użytkownika (**F-110**) jako znane zachowanie systemu.
 
+## 8b. Wynik weryfikacji iteracji 1c (2026-08-07, trzecie podejście)
+
+**AC-2 zaliczone. F-007.17 zweryfikowane. Jedna nowa kwestia otwarta.**
+
+### F-007.17 — działa, potwierdzone dwoma niezależnymi dowodami
+
+W logu, dokładnie w momentach zmiany układu ekranów:
+
+```
+12:27:46  captured display moved; input coordinates re-based  origin_x=-5120.0 origin_y=-171.0 scale=1.0
+12:29:26  captured display moved; input coordinates re-based  origin_x=0.0     origin_y=0.0    scale=1.0
+```
+
+Przesunięcie o **-5120 punktów w poziomie i -171 w pionie** — czyli macOS
+położył ekran zewnętrzny na lewo od wbudowanego i lekko wyżej. To jest
+dokładnie skala błędu, który wcześniej wyprowadzał kursor poza pulpit.
+
+Obserwacja właściciela zgadza się z logiem: *„myszka lepiej działała; jak
+przeszedłem w prawy róg ekranu, to nie mogłem wejść na ekran laptopa"*.
+Kursor przestał uciekać — pulpit RDP mapuje się teraz wyłącznie na
+przechwytywany ekran, także po rekonfiguracji.
+
+### AC-2 — zaliczone
+
+Klapa była otwarta przez **100 sekund** (12:27:46 → 12:29:26). Przyrosty
+`received` na 10 s w tym okresie: 244, 265, 230, 113, 231, 209, 203, 289,
+230, 202 — przy zdrowym baseline ~290. `delivered` rosło monotonicznie przez
+cały czas (129 → 2304).
+
+**Obraz ani razu nie zamarł, klient nie został rozłączony, serwer nie był
+restartowany.** To jest treść AC-2. Dla porównania: w incydencie z 2026-07-24
+obraz zamarł na stałe i nie wrócił.
+
+Watchdog wyzwolił się w tym czasie **raz** (12:28:16, `stalled_for_ms=3000`)
+i odtworzył strumień w 0,6 s.
+
+### Nowa kwestia otwarta: odrzucenia zdarzają się także poza awarią
+
+Tego wcześniej nie widzieliśmy, bo poprzednie logi zaczynały się od zdrowego
+okresu z `rejected=0`. Tutaj **odrzucenia rosły od samego początku, na długo
+przed dotknięciem klapy**:
+
+| okno | `received` Δ | `rejected` Δ | klapa |
+|---|---|---|---|
+| 12:27:04 → 14 | +190 | +105 | zamknięta |
+| 12:27:14 → 24 | +130 | +165 | zamknięta |
+| 12:27:24 → 34 | +73 | +222 | zamknięta |
+| 12:27:34 → 44 | +247 | +47 | zamknięta, klient wszedł |
+
+Czyli `sample buffer carries no image buffer` **nie jest wyłącznie sygnałem
+awarii**. Zdarza się w normalnej pracy, momentami w dużym natężeniu, i mija
+samo. W pierwszym logu (2026-08-07, 11:04) tego nie było — tam osiem
+kolejnych okien miało `rejected=0`. **Nie wiemy, co różni te dwa przebiegi.**
+
+Warto zauważyć, czego to **nie** psuje: watchdog wymaga **zera** klatek
+dobrych przez 6 kolejnych próbek. Przy ~26 klatkach na sekundę w tle takie
+okno nie zdarza się przypadkiem, więc swoistość reguły zostaje wysoka mimo
+szumu. Potwierdza to log: przez 100 s z otwartą klapą i tysiącem odrzuceń
+watchdog wyzwolił się raz.
+
+Do rozstrzygnięcia przy okazji F-004 (który i tak dotyka tej ścieżki):
+
+1. **Czy `skipped_idle` w ogóle kiedykolwiek rośnie?** W całym logu wynosi 0,
+   co znaczy, że `frame_status()` nigdy nie zwrócił `Idle`/`Blank` — albo
+   zwraca `None` i sprawdzenie jest pomijane. Jeśli tak, to **puste próbki
+   mogą być tym, czym na tej wersji SCK jest „brak nowej treści"** — czyli
+   część odrzuceń to normalny sygnał, a nie błąd, i logowanie ich jako `WARN`
+   wprowadza w błąd.
+2. **Czy odtworzenie o 12:28:16 było potrzebne?** Okno tuż przed nim miało
+   +230 klatek, a zaraz po nim +113 z serią ośmiu odrzuceń — czyli sama
+   przebudowa kosztowała ~2 s. Przy 3-sekundowym progu możliwe, że leczymy
+   coś, co minęłoby samo. Próg jest jedną stałą (`WATCHDOG_STALL_THRESHOLD`).
+
+### Potwierdzone zachowanie macOS, nie nasze
+
+*„Byłem w stanie w czasie klapy odpalić okno, tylko leciało od razu na okno
+laptopowe, więc laptop był traktowany jako primary."* — dokładnie tak.
+Po otwarciu klapy ekran wbudowany staje się głównym i nowe okna otwierają się
+na nim, poza kadrem RDP. Serwer nie ma jak temu zaradzić przy jednym
+przechwytywanym ekranie. Odpowiedzi: **F-105** (multi-monitor) albo
+przechwytywanie ekranu **głównego** zamiast wybranego indeksem — to drugie
+zmienia rozmiar pulpitu w trakcie sesji, więc wymaga **F-006**. Do opisania
+w dokumentacji użytkownika (**F-110**).
+
+### Czego nadal nie sprawdzono
+
+**AC-3** (sen/budzenie) i **AC-6** (pięć cykli połącz–rozłącz). Przechodzą do
+weryfikacji zamykającej Falę 3 — nie blokują startu F-004, bo F-007 jest
+jednym ze speców tej fali, a status **Verified** nadaje się fali jako całości.
+
 ## 9. Status
 
 **Approved** (2026-07-27) — z zakresem pierwszej iteracji poniżej.
 
 **Iteracja 1: zaimplementowana, weryfikacja NIEZALICZONA** (2026-08-07).
-Zalicza AC-1, AC-7 i F-007.9; **nie zalicza AC-2** z powodu opisanego w §8.
-AC-3, AC-4, AC-5, AC-6 niesprawdzone.
+Zaliczyła AC-1, AC-7 i F-007.9; **nie zaliczyła AC-2** z powodu opisanego
+w §8 — domknięte dopiero iteracjami 1b i 1c.
+
+**Stan kryteriów po iteracji 1c:** AC-1, AC-2, AC-5, AC-7 zaliczone.
+**AC-3 i AC-6 niesprawdzone** — przechodzą do weryfikacji zamykającej Falę 3.
+AC-4 (skalowanie przy zmianie rozdzielczości) domyka się dopiero z F-006.
 
 **Iteracja 1b: Approved, zaimplementowana, zweryfikowana częściowo**
 (2026-08-07). F-007.14, F-007.14a, F-007.15, F-007.16 — watchdog zastoju jako
@@ -359,9 +454,10 @@ SCK) + drugie ramię `tokio::select!` w `supervise`. **Wyzwalacz potwierdzony
 w boju** (dwa wyzwolenia, bez zalewania logu); **AC-2 nierozstrzygnięte** —
 patrz §8a.
 
-**Iteracja 1c: Approved i zaimplementowana** (2026-08-07). F-007.17, .17a,
-.17b (odświeżanie geometrii wejścia) i F-007.18 (zerowanie rate-limitu logu).
-**Czeka na ręczną weryfikację.**
+**Iteracja 1c: Approved, zaimplementowana, ZWERYFIKOWANA** (2026-08-07).
+F-007.17, .17a, .17b (odświeżanie geometrii wejścia) i F-007.18 (zerowanie
+rate-limitu logu). **AC-2 zaliczone**, F-007.17 potwierdzone logiem
+i zachowaniem — patrz §8b.
 
 Rozwiązanie: nowy `capture::geometry::probe` czyta pozycję i skalę ekranu
 prosto z Quartza (`CGDisplayBounds` + tryb wyświetlania) — na tyle tanio, że

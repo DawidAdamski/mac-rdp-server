@@ -14,7 +14,7 @@ Dopiero wtedy zaczyna się następna fala.
 | 0 | Szkielet | F-001 | **Verified** (2026-07-22) |
 | 1 | Żywy ekran | F-002 | **Verified** (2026-07-24) |
 | 2 | Input | F-003, F-003a | **F-003 Verified** (2026-07-27); F-003a — do decyzji |
-| 3 | Jakość MVP | F-004…F-007 | In progress (F-007 iter. 1b — czeka na weryfikację AC-2) |
+| 3 | Jakość MVP | F-004…F-007 | In progress (F-007 Implemented; F-004/005/006 do napisania) |
 | 4 | Bezpieczeństwo | F-101, F-108 | Planned |
 | 5 | Produkt | F-106, F-109, F-110 | Planned |
 | 6 | Komfort | F-102, F-003a | Planned |
@@ -124,7 +124,7 @@ osobną, pełną iterację, nie „przy okazji".
 
 | Spec | Temat | Stan |
 |---|---|---|
-| F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | Iter. 1 niezaliczona (AC-2); **iter. 1b zaimplementowana**, czeka na weryfikację |
+| F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Implemented** — AC-2 zaliczone po iter. 1b+1c; AC-3/AC-6 do weryfikacji zamykającej |
 | F-004 | Damage tracking — wysyłanie tylko zmienionych regionów | Spec do napisania |
 | F-005 | Kursor — `DisplayUpdate::{ColorPointer, RGBAPointer, PointerPosition, HidePointer}` | Spec do napisania |
 | F-006 | Resize sesji — `RdpServerDisplay::request_layout` + MS-RDPEDISP | Spec do napisania |
@@ -133,7 +133,8 @@ osobną, pełną iterację, nie „przy okazji".
 **Kolejność w tej fali jest wymuszona zależnościami, nie preferencją:**
 
 ```
-F-007 iter.1b (watchdog zastoju)         ← brama; iter.1 nie zaliczyła AC-2
+F-007 iter.1b + 1c                       ← ZROBIONE (watchdog zastoju,
+                                            odświeżanie geometrii wejścia)
         ↓
 F-004 damage tracking                    ← największy zysk dla używalności
         ↓
