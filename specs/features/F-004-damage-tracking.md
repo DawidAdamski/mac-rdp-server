@@ -1,7 +1,7 @@
 # F-004 — Damage tracking: wysyłamy tylko to, co się zmieniło
 
 - **Fala:** 3 (Jakość MVP)
-- **Status:** Implemented (2026-08-07) — czeka na pomiar i weryfikację ręczną
+- **Status:** Implemented (2026-08-07); weryfikacja w toku (2026-08-25) — AC-1/2/6/7 zaliczone, AC-3/AC-4 do zrobienia
 - **Data:** 2026-08-07
 - **ADR:** ADR-0009 (źródło damage'u), ADR-0005 (stride), ADR-0006 (kodeki)
 - **Zależności:** brak wejściowych; **blokuje** sensowność F-005 (kursor)
@@ -164,7 +164,100 @@ uzasadnienie w ADR-0009 §4.
 
 ## 7. Wyniki pomiaru
 
-*(do wypełnienia — F-004.18, AC-6)*
+**Zmierzone 2026-08-25.** Sprzęt: jeden ekran 5120×1440, `scale_factor = 1.0`,
+`stride = 20480 = width × 4` (bez dopełnienia). Klient na osobnej maszynie
+w LAN, `--bind-addr 0.0.0.0`, `--max-fps 30`, enkoder `damage`.
+
+### Metoda — jedna pułapka, która kosztowała nas pierwszy przebieg
+
+**Okno, w którym obserwujesz pomiar, nie może stać na przechwytywanym ekranie.**
+Brzmi banalnie, ale przy jednym ekranie nie ma gdzie uciec, a skutek jest
+drastyczny: pierwsze 170 sekund pomiaru miało `unchanged = 0` przez **4867
+kolejnych klatek**, bo na pulpicie stało okno terminala ze strumieniowanym
+tekstem. Przemalowywało się w rytm klatek i pulpit nigdy nie był statyczny.
+
+Wnioski, żeby nie powtarzać: przekierowuj log **do pliku, bez `tee`**,
+i minimalizuj okna na czas pomiaru. `unchanged = 0` przy rzekomo statycznym
+pulpicie jest sygnałem, że mierzysz coś innego, niż myślisz — a nie usterką
+enkodera.
+
+### Wyniki
+
+Oba wiersze pochodzą z **tej samej sesji i tego samego połączenia** — zmieniło
+się wyłącznie to, co było na ekranie. To pomiar różnicowy, nie dwa niezależne
+przebiegi, więc różnica nie może wynikać z innego klienta, enkodera czy stanu
+sieci.
+
+| Scenariusz | okno | `bytes_if_full` | `bytes_sent` | `saved_pct` | `unchanged` / `frames_in` | ruch |
+|---|---|---|---|---|---|---|
+| **Statyczny pulpit** | 89 s | 10 085 990 400 | 6 864 896 | **99,93%** | 74 / 342 | **77 KB/s** |
+| Ruchliwy pulpit (okno ze strumieniowanym tekstem) | 10 s | 8 640 921 600 | 114 262 016 | 98,68% | 0 / 293 | 11,4 MB/s |
+
+Cała sesja narastająco (10 063 klatki, ~16 min): `bytes_sent = 2 958 819 328`,
+`bytes_if_full = 296 769 945 600`, `saved_pct = 99`, `full_frames = 2`.
+
+**Zysk na statycznym pulpicie to 152× mniej ruchu** niż na ruchliwym i
+**1400× mniej** niż pełna klatka za każdym razem (77 KB/s zamiast 113 MB/s).
+
+### Trzy obserwacje, których wymaganie nie przewidywało
+
+1. **`frames_in` spada z ~29 do ~3,8 klatki na sekundę**, gdy ekran stoi.
+   ScreenCaptureKit **sam** przestaje produkować klatki — więc oszczędzamy
+   także CPU na porównywaniu, zanim damage tracking się w ogóle odezwie.
+   To odpowiada częściowo na ryzyko §8 pkt 1: koszt `memcmp` nie jest ponoszony
+   30 razy na sekundę na statycznym pulpicie, bo nie ma czego porównywać.
+2. **Próg „za dużo regionów" zadziałał raz i słusznie.** Jedyna pełna klatka
+   poza pierwszą poszła z powodem `too many separate regions`, w ruchliwym
+   okresie — czyli reguła F-004.10 c) odpaliła tam, gdzie miała.
+3. **Kursor wypalony w klatkę jest widoczny gołym okiem jako artefakt.**
+   Przy ruchu myszą klient pokazuje **dwa** wskaźniki: własny, rysowany
+   lokalnie i natychmiast, oraz kursor Maca docierający kafelkami z opóźnieniem
+   rundy. Dokładnie to, co §6 zapowiadało jako świadomy koszt — i niezależne
+   potwierdzenie, że F-005 musi iść zaraz po F-004.
+
+### Stan kryteriów akceptacji
+
+| AC | Stan |
+|---|---|
+| AC-1 CI | **Zaliczone** |
+| AC-2 statyczny pulpit | **Zaliczone** (2026-08-25) — liczby wyżej; obraz nie zamarł, po ruchu myszy wraca natychmiast |
+| AC-3 pisanie w edytorze | Do sprawdzenia |
+| AC-4 przewijanie strony | Do sprawdzenia |
+| AC-5 brak duchów | **Częściowo** — przeciąganie okna i animacja minimalizacji: aktualizacja postępuje kafelkami przy szybkim ruchu, ale po zatrzymaniu obraz **sam** staje się poprawny, bez resztek. Zostaje Cmd+Tab, zamknięcie okna i wersja ostra z niskim `--max-fps` |
+| AC-6 zmierzony zysk | **Zaliczone** — ta sekcja |
+| AC-7 `--encoder full` | **Zaliczone** (2026-08-25) — obraz poprawny, jak w Fali 1, potwierdzone wzrokowo przez właściciela; liczby niżej |
+
+### AC-7 — porównanie z `--encoder full`, ta sama treść
+
+Ścieżka diagnostyczna nie tylko działa; przy okazji dała najmocniejszy dotąd
+argument za samym F-004. `FullFrameEncoder` nie robi nic poza przepakowaniem
+klatki (`src/encoder/full_frame.rs:22`), więc mierzy się tu koszt oddania
+IronRDP-owi pełnych 29,5 MB co klatkę.
+
+Miarą jest `delivered` z `capture stats` — ile klatek dotarło do enkodera.
+Capture w obu trybach produkował równe ~29,3 klatki na sekundę; różnica to
+wyłącznie to, ile konsument zdążył przerobić, a resztę zjadła koalescencja
+(`01-architecture.md` §4b).
+
+| Scena | `--encoder damage` | `--encoder full` |
+|---|---|---|
+| Film **w oknie** | **28,4–29,3 fps** | 5,4–9,6 fps |
+| Film **pełny ekran** | 2,0–3,6 fps | ~1,9 fps |
+
+**Wniosek, który obala hipotezę postawioną w trakcie pomiaru.** W trakcie
+testów pojawiło się podejrzenie, że damage tracking dubluje pracę, bo
+`ironrdp-server` prowadzi **własny** diff względem własnego framebuffera
+(`ironrdp-server-0.13.0/src/encoder/mod.rs:240-242`, `USE_DIFFS = true`), więc
+F-004 mógłby być zbędny, a ADR-0009 do rewizji. **Pomiar mówi odwrotnie:**
+przy filmie w oknie F-004 daje **pięciokrotnie więcej klatek**. ADR-0009
+zostaje bez zmian, a jego uzasadnienie z argumentu z rozsądku staje się liczbą.
+
+**Sufit jest wspólny.** Na pełnym ekranie oba tryby zrównują się przy ~2 fps.
+Gdy zmienia się cała powierzchnia, nie ma czego nie wysyłać i decyduje wyłącznie
+przepustowość kopiowania i kompresji RDP 6.0 dla 5120×1440. To jest punkt
+odniesienia dla **F-104** (EGFX/nowsze kodeki) i **F-107** (zero-copy).
+
+### Jak powtórzyć pomiar
 
 Enkoder sam liczy wszystko, czego ten pomiar potrzebuje, i wypisuje to co 10 s:
 
@@ -182,11 +275,8 @@ DEBUG damage stats  frames_in=300 unchanged=284 full_frames=1 regions=37
 Sesja musi trwać **ponad 10 s**, bo tyle wynosi interwał; licznik jest
 per-połączenie, więc nowe połączenie zaczyna od zera.
 
-| Scenariusz | `bytes_if_full` | `bytes_sent` | `saved_pct` | `unchanged` / `frames_in` |
-|---|---|---|---|---|
-| Statyczny pulpit | | | | |
-| Pisanie w edytorze | | | | |
-| Przewijanie strony | | | | |
+Wyniki są w tabelach wyżej. Scenariusze jeszcze niezmierzone — **pisanie
+w edytorze (AC-3)** i **przewijanie strony (AC-4)** — dopisujemy tam, nie tutaj.
 
 ## 8. Ryzyka i otwarte kwestie
 
@@ -202,13 +292,65 @@ per-połączenie, więc nowe połączenie zaczyna od zera.
    klatkę. To poprawne zachowanie, ale znaczy, że **przewijanie nie zyska na
    F-004** — zysk jest przy pracy punktowej. Warto to wiedzieć przed pomiarem,
    żeby nie uznać poprawnego wyniku za błąd.
-4. **Pamięć na kopię klatki na połączenie.** ~23,8 MB przy Retinie. Nieistotne
+4. **Znany efekt uboczny: obraz składa się kafelkami i oko czyta to jako
+   szarpanie.** Zaobserwowane 2026-08-25, uznane przez właściciela za znany
+   efekt uboczny do ewentualnej poprawy później.
+
+   Przy szybkim ruchu — animacja minimalizacji okna, przeciąganie okna, wideo —
+   widać moment, w którym część obrazu jest już nowa, a część jeszcze stara.
+   Każdy region jedzie osobnym `BitmapUpdate`, a klient rysuje go, gdy tylko
+   dotrze, więc nie ma na drucie niczego, co powiedziałoby „ta klatka jest
+   kompletna". Efekt **mija sam** po zatrzymaniu ruchu: obraz staje się
+   poprawny bez interwencji, więc **to nie są duchy** i nie narusza AC-5.
+
+   Paradoks, który to rodzi i który trzeba znać przed czytaniem pomiarów:
+   `--encoder full` potrafi *wyglądać* płynniej, mimo że dostarcza **pięć razy
+   mniej klatek**. Daje ich mało, ale każda jest kompletna. Ocena „płynniejsze"
+   gołym okiem mierzy więc spójność klatki, a nie liczbę klatek — i te dwie
+   rzeczy idą tu w przeciwne strony.
+
+   **Czy da się to naprawić wg specyfikacji — zbadane 2026-08-25.**
+   Protokół ma na to mechanizm: **Frame Marker**, którym serwer oznacza początek
+   i koniec spójnej klatki, żeby klient narysował ją w całości zamiast kawałkami.
+   Problem w tym, że oba jego warianty są dla nas dziś zamknięte:
+
+   - **Surface Frame Marker.** `ironrdp-pdu` 0.9.0 **ma** ten PDU
+     (`SurfaceCommand::FrameMarker`, `src/basic_output/surface_commands/`), ale
+     jest on częścią Surface Commands — ścieżki, której świadomie **nie
+     używamy**: reklamujemy pustą listę kodeków, żeby zostać przy gołych Bitmap
+     Updates (ADR-0006). Włączenie go znaczy zmianę ścieżki graficznej, nie
+     dodanie jednego PDU.
+   - **Alternate Secondary Frame Marker.** Flaga zdolności istnieje
+     (`ALTSEC_FRAME_MARKER_SUPPORT`, `rdp/capability_sets/order/mod.rs:68`), ale
+     `ironrdp-server` ogłasza `OrderFlags::empty()` i `OrderSupportExFlags::empty()`
+     (`src/capabilities.rs:46-52`), czyli **żadnego wsparcia dla rozkazów
+     rysowania**.
+
+   Rozstrzygające: **w całym `ironrdp-server` 0.13.0 nie ma ani jednego
+   odwołania do frame markera.** Serwer ich nie wysyła i nie ma jak go o to
+   poprosić.
+
+   Wniosek: to **nie jest poprawka w F-004**. Drogi są trzy — przejście na
+   Surface Commands / EGFX (**F-104**), PR upstream do IronRDP, albo własna
+   implementacja (**F-200**). Do rozważenia przy F-104, gdzie i tak zmienia się
+   ścieżka graficzna; wtedy ramkowanie klatek jest efektem ubocznym tej zmiany,
+   a nie osobną pracą.
+
+5. **Pamięć na kopię klatki na połączenie.** ~23,8 MB przy Retinie. Nieistotne
    dla jednego klienta, warte odnotowania przy F-105 (multi-monitor).
 
 ## 9. Status
 
-**Approved** (2026-08-07). **Implemented** (2026-08-07) — czeka na pomiar
-(§7) i ręczną weryfikację AC-2…AC-5, AC-7.
+**Approved** (2026-08-07). **Implemented** (2026-08-07).
+
+**Weryfikacja 2026-08-25:** zaliczone **AC-1, AC-2, AC-6, AC-7**; AC-5
+częściowo (przeciąganie okna i animacja — bez duchów; zostaje Cmd+Tab,
+zamknięcie okna i wersja z niskim `--max-fps`). Do zrobienia **AC-3**
+(pisanie) i **AC-4** (przewijanie). Pomiary i wnioski w §7, nowy znany efekt
+uboczny w §8 pkt 4.
+
+Status **Verified** nadaje się fali, nie specowi (F-007 §8) — F-004 czeka
+więc na weryfikację zamykającą Falę 3 razem z F-007 AC-3/AC-6.
 
 Zaimplementowane: F-004.1…F-004.17, F-004.19, F-004.20. Nowy moduł
 `src/encoder/damage.rs`, wariant `FrameUpdate::Region`, przełącznik
