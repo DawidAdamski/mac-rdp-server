@@ -103,7 +103,9 @@ fn run_client(addr: SocketAddr, codecs: BitmapCodecs) -> f64 {
 
     let non_black = image
         .data()
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|px| px[0] | px[1] | px[2] != 0)
         .count();
     let total = usize::from(image.width()) * usize::from(image.height());

@@ -64,7 +64,9 @@ fn main() -> Result<()> {
 
     let non_black = image
         .data()
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|px| px[0] | px[1] | px[2] != 0)
         .count();
     let total = usize::from(image.width()) * usize::from(image.height());
@@ -75,7 +77,7 @@ fn main() -> Result<()> {
     if let Some(path) = output {
         let mut out = Vec::new();
         write!(out, "P6\n{} {}\n255\n", image.width(), image.height())?;
-        for px in image.data().chunks_exact(4) {
+        for px in image.data().as_chunks::<4>().0 {
             out.extend_from_slice(&px[0..3]);
         }
         std::fs::write(&path, out)?;
