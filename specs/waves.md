@@ -1,7 +1,7 @@
 # Roadmapa fal
 
 **Status:** Approved (2026-07-22) — dokument żywy, aktualizowany po każdej fali
-**Data ostatniej aktualizacji:** 2026-08-07
+**Data ostatniej aktualizacji:** 2026-08-25
 
 ## Reguła
 
@@ -14,10 +14,11 @@ Dopiero wtedy zaczyna się następna fala.
 | 0 | Szkielet | F-001 | **Verified** (2026-07-22) |
 | 1 | Żywy ekran | F-002 | **Verified** (2026-07-24) |
 | 2 | Input | F-003, F-003a | **F-003 Verified** (2026-07-27); F-003a — do decyzji |
-| 3 | Jakość MVP | F-004…F-007 | In progress (F-007 Implemented; F-004/005/006 do napisania) |
+| 3 | Jakość MVP | F-004…F-007 | In progress (F-007 i F-004 Implemented; F-005 Draft; F-006 do napisania) |
 | 4 | Bezpieczeństwo | F-101, F-108 | Planned |
 | 5 | Produkt | F-106, F-109, F-110 | Planned |
 | 6 | Komfort | F-102, F-003a, F-105 | Planned |
+| 7 | Dźwięk | F-103 | Planned (2026-08-25) |
 | — | Backlog | F-1xx | Planned |
 
 ## Cel Fal 4–6: z „działa u autora" na „da się zainstalować i używać"
@@ -126,7 +127,7 @@ osobną, pełną iterację, nie „przy okazji".
 |---|---|---|
 | F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Implemented** — AC-2 zaliczone po iter. 1b+1c; AC-3/AC-6 do weryfikacji zamykającej |
 | F-004 | Damage tracking — wysyłanie tylko zmienionych regionów | **Implemented** — czeka na pomiar i weryfikację ręczną |
-| F-005 | Kursor — `DisplayUpdate::{ColorPointer, RGBAPointer, PointerPosition, HidePointer}` | Spec do napisania |
+| F-005 | Kursor — `DisplayUpdate::{RGBAPointer, CachedPointer, DefaultPointer}` | **Draft** (2026-08-24) — czeka na approve; approve = zgoda na ADR-0010 |
 | F-006 | Resize sesji — `RdpServerDisplay::request_layout` + MS-RDPEDISP | Spec do napisania |
 | F-007 (iter. 2) | Przełączanie ekranów: F-007.4/.4a/.6/.6a/.7 | Odblokowane przez F-006 |
 
@@ -251,11 +252,80 @@ do `session` — tam trafia wyłącznie adapter na `CliprdrServerFactory`.
 
 ---
 
+## Fala 7 — Dźwięk  → spec `F-103-audio.md`
+
+**Dodane 2026-08-25** na wniosek właściciela. Przeniesione z backlogu, gdzie
+figurowało jako jedno zdanie bez miejsca w kolejności.
+
+Przekierowanie **dźwięku systemowego Maca do klienta RDP** kanałem RDPSND
+(MS-RDPEA): film odtwarzany na Macu słychać na Windowsie.
+
+### Zbadany stan faktyczny (2026-08-25)
+
+**Strona IronRDP — jest wszystko, czego potrzebujemy, bez zmian w `Cargo.toml`:**
+
+| Element | Fakt | Źródło |
+|---|---|---|
+| Wpięcie | `RdpServerBuilder::with_sound_factory(Option<Box<dyn SoundServerFactory>>)` | `ironrdp-server-0.13.0/src/builder.rs:180` |
+| **Brak feature gate** | W przeciwieństwie do `with_gfx_factory` (`#[cfg(feature = "egfx")]`, `builder.rs:186`) metoda dźwiękowa **nie jest** za flagą; `ironrdp-rdpsnd` jest zwykłą zależnością `ironrdp-server` | `ironrdp-server-0.13.0/Cargo.toml:120` |
+| Traity | `SoundServerFactory::build_backend() -> Box<dyn RdpsndServerHandler>` | `ironrdp-server-0.13.0/src/sound.rs` |
+| Kontrakt handlera | `get_formats()`, `choose_format(common: &[NegotiatedFormat])`, dane przez `RdpsndServer::wave(data, ts)` | `ironrdp-rdpsnd-0.9.0/src/server.rs:184` |
+| Zdarzenia | `RdpsndServerMessage::{Wave, SetVolume, Close, Error}` | `ironrdp-rdpsnd-0.9.0/src/server.rs:17-31` |
+| Formaty | `WaveFormat` to otwarty newtype `u16`; `PCM = 0x0001` | `ironrdp-rdpsnd-0.9.0/src/pdu/mod.rs:66,93` |
+
+Warte odnotowania, bo oszczędza nam klasy błędów: `wFormatNo` — indeks formatu
+na **liście klienta** — jest własnością crate'a, nie handlera. `NegotiatedFormat`
+nie ma publicznego konstruktora, więc nie da się wysłać indeksu spoza zakresu.
+Autorzy opisują to wprost jako naprawę starego API („the classic footgun of the
+old index-returning API", `server.rs:36-47`).
+
+**Strona macOS — też jest, też bez zmian w `Cargo.toml`:**
+
+| Element | Fakt | Źródło |
+|---|---|---|
+| Włączenie | `SCStreamConfiguration::with_captures_audio(bool)` | `screencapturekit-8.0.1/src/stream/configuration/audio.rs:187` |
+| Parametry | `AudioSampleRate` (domyślnie 48000 Hz), `AudioChannelCount` (mono/stereo) | `.../configuration/audio.rs:44,97` |
+| Odbiór | Próbki przychodzą jako `SCStreamOutputType::Audio` | `.../stream/output_type.rs:31-32` |
+| Feature | Gated przez `macos_13_0`, który nasz `macos_14_0` **już implikuje** | `screencapturekit-8.0.1/Cargo.toml:73-74` |
+
+### Trzy rzeczy do rozstrzygnięcia, zanim powstanie spec
+
+1. **Dźwięk jedzie tym samym `SCStream` co obraz.** To nie jest detal:
+   watchdog z F-007 **przebudowuje strumień** przy zastoju (F-007.14), więc
+   każda taka odbudowa przerwie także audio. Do decyzji w specu: osobny stream
+   dla dźwięku (odporność za cenę drugiego strumienia) czy wspólny (prościej,
+   ale zanik obrazu ucina dźwięk). Tego pytania nie było, gdy F-103 leżało
+   w backlogu — pojawiło się dopiero razem z F-007.
+2. **Format i opóźnienie.** PCM 48 kHz stereo to ~1,5 Mbit/s nieskompresowane.
+   Do LAN wystarczy i jest najprostszą poprawną ścieżką na start; kompresja to
+   osobna iteracja. Docelowy problem to nie pasmo, tylko **opóźnienie
+   i synchronizacja z obrazem** — i to jest rzecz do zmierzenia, nie do
+   założenia.
+3. **TCC.** Hipoteza: przechwytywanie **dźwięku systemowego** mieści się
+   w zgodzie na Screen Recording i nie wymaga osobnego uprawnienia. **Do
+   potwierdzenia empirycznie w specu**, bo jeśli jest inaczej, zmienia to
+   instrukcję instalacji z F-110 (trzecie uprawnienie do nadania).
+
+### Dlaczego po Fali 6, a nie wcześniej
+
+Bez schowka (F-102) serwer nie nadaje się do codziennej pracy; bez dźwięku
+nadaje się, tylko jest uboższy. Kolejność idzie za tym, co blokuje używanie,
+a nie za tym, co jest efektowniejsze w demo.
+
+### Poza zakresem Fali 7
+
+**Mikrofon klienta w stronę Maca.** SCK ma `SCStreamOutputType::Microphone`
+(macOS 15+, `output_type.rs:33-37`), ale to jest przechwytywanie mikrofonu
+**Maca**, czyli nie to samo. Przekierowanie mikrofonu *klienta* to osobne
+rozszerzenie protokołu (MS-RDPEAI, kanał `AUDIO_INPUT`) i osobny spec — jeżeli
+kiedykolwiek. Fala 7 to **wyłącznie kierunek Mac → klient.**
+
+---
+
 ## Backlog — po jednym specu na temat
 
 | ID | Temat | Uwagi ze zbadanego stanu IronRDP |
 |---|---|---|
-| F-103 | Audio (MS-RDPEA) | IronRDP ma `SoundServerFactory` + `RdpsndServerHandler` (formaty OPUS/PCM). Po naszej stronie: przechwycenie audio systemowego (SCK `macos_13_0`). |
 | F-104 | EGFX / nowsze kodeki | `ironrdp-server` ma feature `egfx` + `with_gfx_factory` (od 0.11). |
 | F-107 | Wydajność: zero-copy / IOSurface | SCK oddaje IOSurface; `screencapturekit` ma `metal` i `is_backed_by_io_surface()`. |
 | F-200 | **Własna implementacja MS-RDPBCGR** | Cel długoterminowy. Podmiana za granicą `session`. Rozbić na PDU-po-PDU, gdy fale 0–3 będą Verified. |
@@ -263,6 +333,8 @@ do `session` — tam trafia wyłącznie adapter na `CliprdrServerFactory`.
 **Przeniesione z backlogu do fal (2026-08-07):** F-101 → Fala 4,
 F-102 i F-105 → Fala 6, F-106 → Fala 5. F-108, F-109 i F-110 to nowe ID nadane
 w tej aktualizacji.
+
+**Przeniesione z backlogu do fal (2026-08-25):** F-103 → Fala 7.
 
 ## Narzędzia (nie cel, ale trzymamy w zasięgu)
 
