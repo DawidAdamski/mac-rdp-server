@@ -1,0 +1,269 @@
+# F-008 — Suppress Output i Refresh Rect: przerwa w wysyłaniu i pełne odświeżenie
+
+- **Fala:** 3 (Jakość MVP) — poprawka zgodności z MS-RDPBCGR, przed F-005
+- **Status:** Draft
+- **Data:** 2026-09-17
+- **ADR:** ADR-0013 (rzeczywista ścieżka obrazu, Proposed), ADR-0009 (damage),
+  ADR-0011 (fork IronRDP, Proposed — docelowe domknięcie znanej luki, §5)
+- **Źródło:** `specs/02-ms-rdpbcgr.md` §4 P-06, §3.3 G-2/G-3, §4.1 (Cmd+Tab)
+- **Zależności:** F-004 (Implemented). **Cel pośredni:** zamknięcie F-004 AC-5
+  (F-004 §8 pkt 6)
+
+## 1. Cel
+
+Serwer przestaje wysyłać obraz, gdy klient o to prosi (okno zminimalizowane
+albo zasłonięte), a po wznowieniu wysyła **pełny, aktualny** obraz. Dzięki temu
+klient nigdy nie zostaje z fragmentem, o którym serwer „myśli”, że klient go ma.
+
+## 2. Wymagania
+
+### 2.0 Stan faktyczny (2026-09-17), z którego wynikają wymagania
+
+**Specyfikacja.**
+- **G-3.** Po Suppress Output serwer **MUST** przestać albo wznowić wysyłanie
+  aktualizacji, zależnie od `allowDisplayUpdates` (MS-RDPBCGR 3.3.5.11.2,
+  str. 330; PDU: 2.2.11.3, str. 226–227).
+- **G-2.** Po Refresh Rect serwer **MUST** wysłać grafikę dla wskazanego
+  obszaru (3.3.5.11.1, str. 330; PDU: 2.2.11.2, str. 224–225).
+- Obsługę obu PDU serwer ogłasza w General Capability Set (`refreshRectSupport`,
+  `suppressOutputSupport` — 2.2.7.1.1, str. 137).
+- Appendix A <38> (str. 437–438): serwery RDP 8.0/8.1 źle obsługiwały Refresh
+  Rect, a obejściem jest **para Suppress Output (wyłącz → włącz), wymuszająca
+  odświeżenie całego pulpitu**. Wznowienie po Suppress Output jest więc
+  w praktyce traktowane jako prośba o pełne przemalowanie.
+
+**IronRDP 0.13.0.**
+- Ogłasza obsługę obu PDU (`ironrdp-server-0.13.0/src/capabilities.rs:24-30`).
+- Suppress Output tylko ustawia `display_suppressed: Arc<AtomicBool>`
+  (`server.rs:1589-1593`). Samo wysyłanie **nie** jest wstrzymywane — to zadanie
+  backendu, który ma czytać flagę przez `RdpServer::display_suppressed_handle()`
+  (`server.rs:618`) albo `RdpServerBuilder::with_display_suppressed_handle`
+  (`builder.rs:230`).
+- Refresh Rect **tylko zeruje tę flagę**, jeśli była ustawiona (`swap(false)`,
+  `server.rs:1602-1606`). Niczego nie odmalowuje, a prostokątów nie przekazuje
+  dalej. **Refresh Rect przy nieustawionej fladze jest dla nas niewidoczny.**
+- Na początku każdego połączenia flaga jest zerowana (`server.rs:800-809`).
+- IronRDP trzyma własną kopię obrazu (`UpdateEncoder::framebuffer`) i każdą
+  bitmapę porównuje z nią kafelkami (`encoder/mod.rs:240-271`). Pełnoekranowa
+  bitmapa **najpierw** jest porównywana, a dopiero **potem** zastępuje kopię
+  (`:318-330`). Wysłanie tej samej pełnej klatki drugi raz nie wysyła więc nic.
+  **Publicznego API do unieważnienia tej kopii nie ma.**
+- **Jedyny reset tej kopii:** `DisplayUpdate::Resize` wywołuje Deactivate All
+  i ponowną aktywację (`server.rs:1047-1051`, `:1739-1750`).
+  - Aktywacja tworzy nowy `UpdateEncoder` z `framebuffer: None`
+    (`server.rs:1482-1484`, `encoder/mod.rs:163`).
+  - Pętla klienta ponownie woła `RdpServerDisplay::updates()`
+    (`server.rs:1236`).
+- `desktopResizeFlag` klienta jest tylko logowany i nie blokuje Deactivate All
+  (`server.rs:1408-1410`) — ograniczenie opisane w §5.
+
+**Nasz kod.**
+- `grep display_suppressed src/` jest pusty: wysyłamy dalej, gdy klient prosi
+  o przerwę. Narusza to G-3.
+- `DamageEncoder` porównuje z ostatnią **wysłaną** klatką (ADR-0009 §1), więc
+  po wznowieniu też nie wyśle niczego, co się nie zmieniło.
+- `FrameStream::clone` zaczyna od nowa i oddaje **bieżącą** klatkę od razu
+  (`src/capture/mod.rs:275-287`).
+- `MacRdpDisplay::updates()` tworzy nowy enkoder na połączenie
+  (`src/session/display.rs:38-46`).
+
+**Wniosek.** Ponowna aktywacja przez `Resize` z **niezmienionym** rozmiarem
+resetuje oba porównania naraz: IronRDP dostaje nowy `UpdateEncoder`,
+a my — nowe `updates()`, czyli świeży enkoder i klon strumienia z bieżącą
+klatką. Pierwsza klatka po aktywacji idzie więc w całości. Wynika to z kodu
+[Z]. Zachowanie prawdziwych klientów przy ponownej aktywacji tego samego
+rozmiaru trzeba zmierzyć (AC-5, AC-7).
+
+### 2.1 Diagnostyka (pomiar D-2)
+
+- **F-008.1** (MUST) Procedura pomiaru D-2 (`02-ms-rdpbcgr.md` §5) MUSI być
+  zapisana w §4 z dokładnym filtrem logów.
+  - Filtr: `MAC_RDP_LOG=info,mac_rdp_server=debug,ironrdp_server=debug`.
+    `EnvFilter` w `src/main.rs:237-252` już to obsługuje, więc wymaganie nie
+    zmienia kodu.
+  - Szukane komunikaty IronRDP: `client suppress-output state changed`,
+    `client RefreshRectangle cleared suppress-output state`,
+    `Dropping bitmap update that exceeds desktop size`,
+    `Failed to extract bitmap subregion`.
+  - D-2 MUSI zostać wykonany i opisany **przed** implementacją F-008.3+ — jego
+    wynik może zmienić priorytety (§5).
+- **F-008.2** (MUST) Serwer MUSI logować na poziomie `info` każde **przejście**
+  stanu przerwy obserwowane po naszej stronie (`suppressed` ↔ `resumed`).
+  - Przy wznowieniu log zawiera czas trwania przerwy i liczbę klatek
+    pominiętych w jej trakcie.
+  - Dzięki temu D-2 i AC-3…AC-6 da się ocenić z naszego logu, bez logów
+    IronRDP.
+
+### 2.2 Przerwa w wysyłaniu (G-3)
+
+- **F-008.3** (MUST) `session` MUSI odczytywać stan przerwy z uchwytu IronRDP
+  (`display_suppressed_handle()` albo `with_display_suppressed_handle`).
+  Typ `Arc<AtomicBool>` z IronRDP NIE MOŻE wyjść poza `session`, a logika
+  decyzji jest czysta i ma nasz własny typ (F-008.8).
+- **F-008.4** (MUST) Gdy klient poprosił o przerwę, `next_update` NIE MOŻE
+  zwracać aktualizacji obrazu (`DisplayUpdate::Bitmap`).
+  - Klatki z capture są w tym czasie odbierane i **porzucane bez kodowania** —
+    koalescencja `watch` i tak trzyma tylko najnowszą (`01-architecture.md` §4b).
+  - Baza porównania naszego enkodera się nie zmienia.
+  - Capture działa dalej (§5).
+- **F-008.5** (MUST) Zmiana stanu przerwy MUSI zostać zauważona w ciągu
+  **≤ 100 ms**, także przy statycznym pulpicie, gdy capture nie dostarcza
+  nowych klatek. `next_update` nie może więc czekać **wyłącznie** na następną
+  klatkę. Mechanizm wybiera implementacja (np. `tokio::select!` z interwałem).
+  Warunki:
+  - zachowana cancel-safety z kontraktu `RdpServerDisplayUpdates`
+    (komentarz w `src/session/display.rs:60-64`);
+  - brak zajętego czekania (busy-wait).
+
+### 2.3 Pełne odświeżenie po wznowieniu (G-2, G-3, <38>)
+
+- **F-008.6** (MUST) Po przejściu `suppressed` → `resumed` serwer MUSI wysłać
+  klientowi **cały pulpit** z najnowszej klatki, także jeśli od ostatniego
+  wysłania nic się nie zmieniło.
+  - Obejmuje to Refresh Rect przychodzący w trakcie przerwy: IronRDP zeruje
+    wtedy flagę, więc widzimy wznowienie.
+  - Pełny pulpit zawiera każdy prostokąt, o który mógł prosić klient, więc G-2
+    jest w tym przypadku spełnione.
+- **F-008.7** (MUST) **Rozstrzygnięcie resetu porównań.** Na IronRDP 0.13.0
+  pełne odświeżenie MUSI być wykonane przez `DisplayUpdate::Resize` z
+  **bieżącym, niezmienionym** rozmiarem pulpitu (§2.0, „Wniosek”). Skutki:
+  - IronRDP tworzy nowy `UpdateEncoder` bez kopii obrazu;
+  - IronRDP ponownie woła `updates()`, a my zwracamy nowy enkoder i klon
+    strumienia, który od razu oddaje bieżącą klatkę.
+
+  Nie wysyłamy „tej samej klatki jeszcze raz” — zjadłyby ją oba diffy.
+  Nie dokładamy obejść typu celowo zmieniona klatka. Jeśli AC-5 albo AC-7
+  pokaże, że ponowna aktywacja jest u któregoś z klientów widocznie szkodliwa
+  (miganie, rozłączenie, reset skalowania okna), implementacja MUSI się
+  zatrzymać i zaproponować zmianę tego wymagania: poprawkę w forku IronRDP
+  (ADR-0011) albo nowy ADR.
+- **F-008.8** (MUST) Decyzja „kiedy odświeżyć” MUSI być czystą maszyną stanów
+  (np. `SuppressTracker`) w warstwie bez typów IronRDP, testowalną jednostkowo.
+  - Wejście: kolejne odczyty flagi i znaczniki czasu.
+  - Wyjście: `Idle` / `Suppressed` / `RefreshDue`.
+- **F-008.9** (MUST) Odświeżenia MUSZĄ się **koalescować**.
+  - Jeśli klient wznowi i ponownie wstrzyma, zanim odświeżenie zostało
+    wysłane, odświeżenie jest anulowane.
+  - Najwyżej jedno odświeżenie jest w toku naraz.
+  - Kolejne może nastąpić najwcześniej **1 s** po poprzednim; wznowienie
+    w tym oknie odkłada odświeżenie na jego koniec, zamiast je gubić.
+  - Szybkie minimalizuj/przywróć nie może więc wywołać lawiny ponownych
+    aktywacji.
+- **F-008.10** (MUST) Przerwa i odświeżenie MUSZĄ działać tak samo dla
+  `--encoder damage` i `--encoder full` — mechanizm leży w `session`,
+  a nie w enkoderze.
+
+### 2.4 Testy
+
+- **F-008.11** (MUST) Testy jednostkowe `SuppressTracker` pokrywają:
+  - wstrzymanie → wznowienie ⇒ jedno `RefreshDue`;
+  - wstrzymanie → wznowienie → wstrzymanie przed obsłużeniem ⇒ brak
+    odświeżenia (F-008.9);
+  - dwa wznowienia w odstępie < 1 s ⇒ drugie odroczone, nie zgubione
+    (F-008.9);
+  - brak przerwy ⇒ nigdy `RefreshDue`;
+  - stan początkowy połączenia = brak przerwy.
+
+  Każdy test ma w nazwie albo komentarzu ID wymagania.
+- **F-008.12** (SHOULD) Test integracyjny w `tests/` (wzorem
+  `tests/rdp_pixels.rs`, klient `ironrdp-connector`/`ironrdp-session`
+  z `dev-dependencies`) POWINIEN sprawdzić:
+  - po Suppress Output (`allowDisplayUpdates = 0`) i zmianie wzorca testowego
+    serwer przez ≥ 500 ms nie wysyła aktualizacji obrazu;
+  - po Suppress Output (`allowDisplayUpdates = 1`) klient przechodzi ponowną
+    aktywację i dostaje pełny, poprawny obraz (asercja na pikselach —
+    ADR-0006 §„Czego ten incydent nauczył”).
+
+  Jeśli `ironrdp-session` 0.11.0 nie pozwala wysłać tych PDU albo obsłużyć
+  ponownej aktywacji, implementacja opisuje to w §6 i zostaje przy AC ręcznych.
+- **F-008.13** (MUST) Istniejące testy przechodzą bez zmian, w tym
+  `tests/architecture.rs` i `tests/rdp_pixels.rs`.
+
+## 3. Odniesienia do dokumentacji
+
+| Wymaganie | Źródło |
+|---|---|
+| F-008.3–F-008.5 | MS-RDPBCGR 2.2.11.3 Client Suppress Output PDU (str. 226–227), 3.3.5.11.2 (str. 330); `ironrdp-server-0.13.0/src/server.rs:618`, `:1589-1593`; `builder.rs:230` |
+| F-008.6 | MS-RDPBCGR 2.2.11.2 Client Refresh Rect PDU (str. 224–225), 3.3.5.11.1 (str. 330), Appendix A <38> (str. 437–438), 2.2.11.1 Inclusive Rectangle (str. 224) |
+| F-008.7 | MS-RDPBCGR 2.2.3 Deactivation–Reactivation (str. 116–117), 3.3.5.5 (str. 325); `ironrdp-server-0.13.0/src/server.rs:1047-1051`, `:1236`, `:1482-1484`, `:1739-1750`; `encoder/mod.rs:163`, `:240-271`, `:318-330`; `src/capture/mod.rs:275-287` |
+| F-008.1 | `src/main.rs:237-252` (`MAC_RDP_LOG`, `EnvFilter`); komunikaty: `ironrdp-server-0.13.0/src/server.rs:1592`, `:1604`; `encoder/mod.rs:380`, `:431` |
+| całość | General Capability Set 2.2.7.1.1 (str. 134–137); `specs/ref/MS-RDPBCGR-v20260309.txt`; `specs/02-ms-rdpbcgr.md` §3.3, §4 P-06, §4.1 |
+
+## 4. Kryteria akceptacji
+
+Część czysta — testy w CI. Część z klientem — **checklista ręczna**, bo
+zachowanie okna klienta i macOS-a nie daje się sprawdzić bez GUI.
+
+1. **AC-1** CI zielone: fmt, clippy `-D warnings`, `cargo test --all-targets`.
+   Testy z F-008.11 (i F-008.12, jeśli powstał) przechodzą.
+2. **AC-2 — pomiar D-2 (przed kodem, F-008.1).**
+   - Uruchom serwer z
+     `MAC_RDP_LOG=info,mac_rdp_server=debug,ironrdp_server=debug`.
+   - Wykonaj Cmd+Tab **na Macu** (przez klienta), a potem Alt+Tab/Cmd+Tab
+     **na maszynie klienta**, po 10 razy.
+   - Zapisz w §6, które z komunikatów z F-008.1 się pojawiły i przy którym
+     wariancie.
+   - Przy każdym zamrożeniu odpowiedz na pytanie z F-004 §8 pkt 6: czy ruch
+     myszy po zamrożonym obszarze go naprawia?
+3. **AC-3 — minimalizacja przy ruchu na Macu.**
+   - Na Macu odtwarzaj wideo, a okno klienta zminimalizuj na 30 s.
+   - Log pokazuje przejście `suppressed` (F-008.2), a w tym czasie nie
+     rośnie licznik `bytes_sent` w `damage stats`.
+   - Po przywróceniu okna w ciągu 1 s widać pełny, aktualny obraz, bez
+     fragmentów sprzed minimalizacji.
+4. **AC-4 — statyczny pulpit.**
+   - Zminimalizuj okno klienta.
+   - Na Macu zmień coś jednym ruchem (np. otwórz okno skrótem z lokalnej
+     klawiatury) i zostaw pulpit bez ruchu.
+   - Przywróć okno klienta: zmiana jest widoczna od razu, mimo że capture
+     nie dostarcza nowych klatek (F-008.5).
+5. **AC-5 — ponowna aktywacja jest nieszkodliwa.** Przy przywróceniu okna
+   (AC-3/AC-4) okno klienta nie zmienia rozmiaru ani skalowania, sesja się nie
+   rozłącza, a miganie jest najwyżej jednokrotne. Sprawdzić **Windows App
+   (macOS)** i **mstsc (Windows)**; xfreerdp, jeśli dostępny. Porażka ⇒
+   F-008.7, ścieżka zatrzymania.
+6. **AC-6 — koalescencja.** 10× minimalizuj/przywróć w ciągu ~5 s. Sesja
+   działa dalej, a log pokazuje co najwyżej tyle ponownych aktywacji, ile
+   pozwala F-008.9 (≤ ~6), bez błędów.
+7. **AC-7 — Cmd+Tab (F-004 AC-5).** Scenariusz z F-004 AC-5: przełączanie
+   aplikacji Cmd+Tab, zamknięcie okna, przeciąganie okna.
+   - Wszystko powtórzone przy `--max-fps 5`.
+   - Nigdzie nie zostaje fragment poprzedniej treści.
+   - Jeśli zostaje, notujemy, czy log F-008.2 pokazał przejście. Brak przejścia
+     oznacza inną przyczynę niż P-06, a F-004 §8 pkt 6 pozostaje otwarte
+     z tym ustaleniem.
+8. **AC-8** `--encoder full`: AC-3 i AC-4 dają ten sam wynik (F-008.10).
+9. **AC-9** Kilkunastominutowa sesja z kilkoma minimalizacjami: brak regresji
+   F-004 (AC-2 statyczny pulpit ≈ 0 B/s) i F-007 (reconnect).
+
+## 5. Poza zakresem
+
+- **Refresh Rect bez wcześniejszej przerwy — znana luka wobec G-2 (MUST).**
+  IronRDP 0.13.0 nie przekazuje go backendowi (`server.rs:1602-1606`), więc
+  po naszej stronie nie da się go wykryć. Zostaje jako **jawne odstępstwo**
+  do czasu:
+  - poprawki w forku IronRDP (ADR-0011, Etap 1 — to jest pierwsza poprawka,
+    która uzasadnia fork), albo
+  - wydania upstream, które to naprawi (na `master` 2026-09-16 bez zmian).
+- **Odświeżanie tylko prośnego prostokąta** zamiast całego pulpitu —
+  optymalizacja możliwa dopiero, gdy prostokąty z Refresh Rect będą dostępne
+  (jw.). Uwaga na włączne współrzędne `TS_RECTANGLE16` (2.2.11.1, str. 224).
+- **Zatrzymanie capture na czas przerwy** (oszczędność CPU) — F-107. F-008
+  tylko nie koduje i nie wysyła.
+- **Sprawdzenie `desktopResizeFlag` klienta przed ponowną aktywacją** —
+  IronRDP 0.13.0 go nie udostępnia (`server.rs:1408-1410`). Dotyczy też F-006;
+  rozstrzygane tam albo w forku. Główni klienci go ogłaszają [I — do
+  potwierdzenia przy D-5].
+- **Frame Marker, EGFX, nowe kodeki** — ADR-0013, F-104.
+- **Wiele monitorów i `desktopRect` w Suppress Output** — F-105.
+
+## 6. Status
+
+**Draft** (2026-09-17) — czeka na approve właściciela i na pomiar D-2 (AC-2),
+który MUSI poprzedzić implementację F-008.3 i kolejnych.
+
+### Wyniki pomiarów
+
+| Pomiar | Data | Klient | Wynik |
+|---|---|---|---|
+| D-2 / AC-2 | — | — | — |

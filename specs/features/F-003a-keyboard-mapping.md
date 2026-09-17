@@ -6,6 +6,10 @@
 - **ADR:** ADR-0003 (CGEvent), ADR-0001 (silnik), **ADR-0008** (strategia
   scancode vs Unicode — do napisania razem z approve tego speca)
 - **Poprzednik:** F-003 (szkielet klawiatury — Verified 2026-07-27)
+- **Uzupełnienie 2026-09-17 (Draft):** F-003a.14–F-003a.18 — naprawa ścieżki
+  Unicode (surogaty, flagi modyfikatorów). Źródło: `02-ms-rdpbcgr.md` §4 P-05.
+  **Proponowane do zatwierdzenia niezależnie od ADR-0008**: to poprawki błędu,
+  a nie wybór strategii scancode/Unicode.
 
 ## 1. Cel
 
@@ -110,6 +114,62 @@ Layout-independence wymaga poznania **zamierzonego znaku**. Są dwie drogi:
   Unicode (w tym parę surogatów), żeby ścieżkę składania dało się sprawdzić
   bez GUI (samego wstrzyknięcia i tak nie zweryfikuje bez człowieka).
 
+### Naprawa ścieżki Unicode — uzupełnienie 2026-09-17 (Draft)
+
+**Status tej grupy: Draft (2026-09-17).** Doprecyzowuje F-003a.4, F-003a.5
+i F-003a.11. Ich treść zostaje bez zmian; wymagania poniżej opisują, jak
+konkretnie mają być spełnione.
+
+Kontekst.
+- **Jednostka.** MS-RDPBCGR 1.1 (str. 19) definiuje „Unicode character” jako
+  **16-bitową jednostkę kodową UTF-16**, o ile nie powiedziano inaczej.
+  `unicodeCode` w Unicode Keyboard Event (2.2.8.1.1.3.1.1.2, str. 171;
+  fast-path: 2.2.8.1.2.2.2, str. 179) jest takim polem, więc znak spoza BMP
+  przychodzi jako dwa zdarzenia.
+- **Błąd dziś.** `src/input/cgevent.rs:166-173` tworzy zdarzenie klawiatury
+  z keycode `0` i ustawia mu tekst tylko wtedy, gdy `char::from_u32` się uda.
+  Dla surogatu się nie udaje, więc **wysyłane jest zdarzenie z keycode 0, czyli
+  `kVK_ANSI_A`**: emoji daje na Macu „aa”, a nie „nic”, jak zakładało
+  F-003a.4.
+- **Flagi.** To zdarzenie niesie też bieżące flagi modyfikatorów, bo `post`
+  (`cgevent.rs:89-92`) stempluje je na każdym zdarzeniu. Czy przy wciśniętym
+  Cmd macOS wyzwoli wtedy skrót — do potwierdzenia testem ręcznym AC-10.
+
+- **F-003a.14** (MUST) Składanie par surogatów MUSI być czystą maszyną stanów
+  w module `input` (bez wywołań macOS), z **osobnym buforem dla wciśnięć
+  i dla zwolnień**.
+  - Wysoki surogat (U+D800–U+DBFF) jest buforowany.
+  - Niski surogat (U+DC00–U+DFFF), który przychodzi bezpośrednio po wysokim
+    w tym samym kierunku, daje **jeden** znak skalarny i **jedno** zdarzenie
+    w tym kierunku.
+  - Kolejność zdarzeń klienta (`↓H ↓L ↑H ↑L` albo `↓H ↑H ↓L ↑L`) NIE MOŻE
+    wpływać na wynik: w obu przypadkach powstaje jedno wciśnięcie i jedno
+    zwolnienie złożonego znaku.
+- **F-003a.15** (MUST) Samotny surogat MUSI zostać odrzucony z wpisem `debug`.
+  Samotny to:
+  - niski bez poprzedzającego wysokiego;
+  - wysoki, po którym w tym samym kierunku przychodzi coś innego niż niski;
+  - wysoki pozostawiony w buforze w chwili resetu (F-003a.17).
+
+  Dla odrzuconego surogatu NIE WOLNO wstrzyknąć żadnego zdarzenia klawiatury.
+  W szczególności żadne zdarzenie Unicode nie może trafić do systemu
+  z keycode 0 bez ustawionego tekstu. Zdarzenie, które przerwało parę,
+  przetwarzamy normalnie.
+- **F-003a.16** (MUST) Zdarzenie Unicode MUSI być wstrzyknięte z **wyzerowanymi
+  flagami modyfikatorów**. Stan modyfikatorów serwera (F-003.12) się nie
+  zmienia, więc następne zdarzenie scancode dostaje flagi jak dotąd.
+  - To rozstrzyga pytanie z F-003a.5 („czyścić flagi czy budować je
+    świadomie”) na korzyść czyszczenia. ADR-0008 wybiera tylko między
+    ścieżkami scancode i Unicode, a skróty i tak idą ścieżką pozycyjną
+    (F-003a.2).
+  - Jeśli ADR-0008 uzna to za błąd, zmiana idzie przez aktualizację tego
+    wymagania, a nie po cichu w kodzie.
+- **F-003a.17** (MUST) Bufor surogatów MUSI być czyszczony przy każdym resecie
+  stanu wejścia: po Synchronize (F-003.22) i na końcu połączenia (F-003.24).
+- **F-003a.18** (MUST) Testy jednostkowe MUSZĄ pokrywać przypadki wymienione
+  w AC-9, a każdy test MUSI mieć w nazwie albo komentarzu ID wymagania.
+  Istniejące testy przechodzą bez zmian (F-003a.12).
+
 ## 4. Odniesienia do dokumentacji
 
 | Wymaganie | Źródło |
@@ -119,6 +179,9 @@ Layout-independence wymaga poznania **zamierzonego znaku**. Są dwie drogi:
 | F-003a.5, F-003a.3 | Apple: `CGEventKeyboardSetUnicodeString`, `CGEventCreateKeyboardEvent`, `CGEventSetFlags` |
 | F-003a.8 | MS-RDPBCGR Client Core Data `keyboardLayout` (KLID); do zweryfikowania w API IronRDP |
 | F-003a.7 | Apple `UCKeyTranslate` / TSM (jeśli ścieżka scancode ma obsłużyć dead keys po naszej stronie) |
+| F-003a.14, F-003a.15 | MS-RDPBCGR 1.1 Glossary „Unicode character” (str. 19); 2.2.8.1.1.3.1.1.2 (str. 171); 2.2.8.1.2.2.2 (str. 179); Unicode Standard, UTF-16 (zakresy surogatów D800–DBFF, DC00–DFFF) |
+| F-003a.16 | Apple: `CGEventSetFlags`, `CGEventKeyboardSetUnicodeString`; `specs/02-ms-rdpbcgr.md` §4 P-05 |
+| F-003a.17 | F-003.22, F-003.24 |
 
 ## 5. Kryteria akceptacji
 
@@ -141,6 +204,29 @@ Część czysta — testy jednostkowe. Część macOS — **checklista ręczna**
    układzie, gdzie AltGr coś zmienia) — bez „zawieszonego" modyfikatora.
 8. **AC-8** Kilkuminutowa sesja pisania: brak zawieszonych modyfikatorów,
    brak zgubionych znaków przy szybkim pisaniu.
+
+**Uzupełnienie 2026-09-17 (Draft) — naprawa ścieżki Unicode (F-003a.14–F-003a.18).**
+
+9. **AC-9** Testy jednostkowe maszyny stanów (część CI):
+   - `↓D83D ↓DE00` ⇒ jedno wciśnięcie znaku 😀 (U+1F600);
+     `↑D83D ↑DE00` ⇒ jedno zwolnienie (F-003a.14);
+   - kolejność przeplatana `↓D83D ↑D83D ↓DE00 ↑DE00` ⇒ ten sam wynik
+     (F-003a.14);
+   - samotne `↓DE00` ⇒ brak zdarzeń (F-003a.15);
+   - `↓D83D ↓0061` ⇒ wyłącznie wciśnięcie `a`; wysoki surogat odrzucony
+     (F-003a.15);
+   - `↓D83D`, potem reset ⇒ brak zdarzeń; kolejne `↓DE00` też nic nie daje
+     (F-003a.15, F-003a.17);
+   - znak z BMP `↓0105` ⇒ jedno wciśnięcie `ą`, bez buforowania (F-003a.14);
+   - decyzja o flagach: zdarzenie Unicode przy trzymanym Cmd ma flagi = 0,
+     a następne zdarzenie scancode ma Cmd (F-003a.16).
+10. **AC-10** Checklista ręczna:
+    - emoji wpisane z klienta (np. z panelu emoji Windows, Win+.) pojawia się
+      w edytorze na Macu jako **jeden** znak, bez dodatkowych liter „a”;
+    - to samo z wciśniętym i puszczonym wcześniej Cmd: żaden skrót się nie
+      wyzwala;
+    - po Alt+Tab po stronie klienta w trakcie wpisywania emoji nic nie „wisi”
+      (F-003a.17).
 
 ## 6. Poza zakresem
 
@@ -176,3 +262,8 @@ Część czysta — testy jednostkowe. Część macOS — **checklista ręczna**
 
 **Draft** — czeka na approve właściciela. Approve F-003a = zgoda na napisanie
 ADR-0008 (strategia scancode/Unicode) przed kodem.
+
+**Uzupełnienie 2026-09-17:** F-003a.14–F-003a.18 — **Draft**. Proponowane do
+osobnego approve jeszcze przed ADR-0008, bo naprawiają błąd widoczny dziś
+(`02-ms-rdpbcgr.md` §4 P-05) i nie przesądzają strategii. Grupa jest częścią
+Fali 3 (`waves.md`).

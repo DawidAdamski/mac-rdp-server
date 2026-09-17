@@ -5,6 +5,9 @@
 - **Data:** 2026-07-24
 - **ADR:** ADR-0003 (CGEvent), ADR-0001 (silnik), ADR-0007 (środkowy przycisk — ograniczenie IronRDP)
 - **Powiązane:** F-003a (mapowanie klawiatury — osobny spec, bo to najtrudniejsza część)
+- **Uzupełnienie 2026-09-17 (Draft):** F-003.22–F-003.26 — reset stanu wejścia
+  (Synchronize, koniec połączenia). Źródło: przegląd `02-ms-rdpbcgr.md` §4 P-04.
+  Wymagania F-003.1–F-003.21 bez zmian.
 
 ## 1. Cel
 
@@ -116,6 +119,58 @@ tabela na kilkaset wpisów zależna od układu i zasługuje na własną iteracj�
   je przyjmuje i konwertuje (wstrzyknięcia do systemu i tak nie da się
   zweryfikować bez człowieka).
 
+### Reset stanu wejścia — uzupełnienie 2026-09-17 (Draft)
+
+**Status tej grupy: Draft (2026-09-17).** Pozostałe wymagania F-003 zachowują
+swój status.
+
+Kontekst. MS-RDPBCGR 2.2.8.1.1.3.1.1.5 (str. 173) definiuje Synchronize Event
+jako zdarzenie, które ustawia przełączniki (Caps/Num/Scroll Lock) **i „resetuje
+stan klawiszy serwera do wszystko puszczone”**. Klient SHOULD po nim dosłać
+wciśnięcia klawiszy i przycisków, które faktycznie trzyma. Fast-path ma
+odpowiednik w 2.2.8.1.2.2.5 (str. 181).
+
+Dziś `src/input/cgevent.rs:175-177` na `KeyEvent::SyncLocks` ustawia tylko
+Caps Lock. Trzymane modyfikatory (`Modifiers`) i przyciski (`Buttons`) zostają.
+Sink żyje przez cały proces (`src/input/mod.rs`), więc taki stan **przecieka
+także między połączeniami**: klient rozłączony z wciśniętym Cmd albo w trakcie
+przeciągania zostawia Maca z „wiszącym” klawiszem. Zdarzenie Synchronize
+przychodzi typowo przy powrocie fokusu do okna klienta, np. po Cmd+Tab/Alt+Tab
+po stronie klienta.
+
+- **F-003.22** (MUST) Po `KeyEvent::SyncLocks` serwer MUSI zwolnić **każdy**
+  modyfikator i **każdy** przycisk myszy, który według jego stanu jest
+  wciśnięty. Zwolnienie MUSI zostać **wstrzyknięte do systemu** prawdziwymi
+  zdarzeniami (`FlagsChanged`/key-up dla modyfikatorów,
+  `{Left,Right,Other}MouseUp` dla przycisków). Samo wyzerowanie stanu
+  w pamięci nie wystarcza, bo macOS nadal uważałby klawisz za trzymany.
+  Dopiero **po** zwolnieniach serwer ustawia przełączniki zgodnie z F-003.13.
+- **F-003.23** (MUST) Wciśnięcia, które klient dosyła po Synchronize, MUSZĄ być
+  przetwarzane normalnie, w kolejności odbioru. Reset NIE MOŻE ich zgubić ani
+  wyprzedzić. Warunek spełnia to, że reset jedzie tym samym uporządkowanym
+  kanałem co zdarzenia wejścia (`01-architecture.md` §4a).
+- **F-003.24** (MUST) Koniec połączenia — czysty, z błędem albo zerwany —
+  MUSI wywołać to samo zwolnienie stanu co F-003.22, **bez** zmiany
+  przełączników. Nowe połączenie MUSI zaczynać ze stanem „wszystko puszczone”.
+  - Sygnał końca połączenia MUSI dotrzeć do `input` jako **nasz** typ zdarzenia,
+    tym samym kanałem co wejście — analogicznie do `InputEvent::Geometry`
+    (F-007.17). Typy IronRDP nie wychodzą poza `session` (granica nr 1
+    z `CLAUDE.md`).
+  - Źródło sygnału w `session` wybiera implementacja. Musi pokrywać zerwanie
+    połączenia. Kandydaci w API 0.13.0: `ConnectionHandler::on_disconnected`
+    i `on_accept` (`ironrdp-server-0.13.0/src/server.rs:70-91`) albo początek
+    `RdpServerDisplay::updates()`.
+  - Wysłanie sygnału NIE MOŻE blokować: obowiązuje `try_send`, tak samo jak
+    w F-003.4.
+- **F-003.25** (MUST) Decyzja „co zwolnić” MUSI być czystą funkcją modułu
+  `input::state`, testowalną bez uprawnień macOS. Na podstawie stanu
+  modyfikatorów i przycisków zwraca listę zwolnień i stan po resecie.
+  `cgevent.rs` tylko wstrzykuje wynik.
+- **F-003.26** (SHOULD) Każdy reset POWINIEN dać jeden wpis `debug`
+  z przyczyną (`sync` albo `disconnect`) i liczbą zwolnionych
+  modyfikatorów i przycisków. Wpisy nie mogą zalewać logu przy pustym stanie
+  — wtedy wystarczy `trace`.
+
 ## 4. Odniesienia do dokumentacji
 
 | Wymaganie | Źródło |
@@ -125,6 +180,9 @@ tabela na kilkaset wpisów zależna od układu i zasługuje na własną iteracj�
 | F-003.11–F-003.15 | MS-RDPBCGR §2.2.8.1.1.3 (Keyboard Event, scancode set 1); Apple: `CGEventCreateKeyboardEvent`, `CGEventFlags` |
 | F-003.16 | Apple: `AXIsProcessTrusted`; ADR-0003 §5 |
 | F-003.6 | `DisplayInfo.scale_factor` z Fali 1 (F-002.5) |
+| F-003.22, F-003.23 | MS-RDPBCGR 2.2.8.1.1.3.1.1.5 Synchronize Event (str. 173–174); 2.2.8.1.2.2.5 Fast-Path Synchronize Event (str. 181); `specs/ref/MS-RDPBCGR-v20260309.txt` |
+| F-003.24 | `ironrdp-server-0.13.0/src/server.rs:70-91` (`ConnectionHandler`); `specs/02-ms-rdpbcgr.md` §4 P-04 |
+| F-003.25 | `src/input/state.rs` (`Modifiers`, stan przycisków); ADR-0003 §3 |
 
 ## 5. Kryteria akceptacji
 
@@ -150,6 +208,33 @@ Sprawdzane ręcznie prawdziwym klientem.
    restarcie) input zaczyna działać.
 10. **AC-10** Sesja pozostaje sterowalna przez kilka minut; brak „zawieszonych"
     modyfikatorów (nie zostaje wciśnięty Shift po zwolnieniu).
+
+**Uzupełnienie 2026-09-17 (Draft) — reset stanu wejścia (F-003.22–F-003.26).**
+Testy jednostkowe (część CI, AC-11) i checklista ręczna (AC-12…AC-15):
+
+11. **AC-11** Testy jednostkowe dla F-003.25. Każdy ma w nazwie albo komentarzu
+    ID wymagania.
+    - Trzymane lewy Shift, prawy Cmd i lewy przycisk; reset ⇒ lista zwolnień
+      zawiera dokładnie te trzy pozycje, `cg_flags()` bez modyfikatorów,
+      rodzaj ruchu `MouseMoved`, a nie `Dragged`.
+    - Pusty stan; reset ⇒ pusta lista.
+    - Reset z `SyncLocks { caps: true, .. }` ⇒ po resecie Caps Lock włączony,
+      a zwolnienia wypadają **przed** ustawieniem przełącznika (F-003.22).
+    - Reset z przyczyny `disconnect` nie zmienia Caps Lock (F-003.24).
+    - Wciśnięcie Shift po resecie ⇒ Shift znów trzymany (F-003.23).
+12. **AC-12** **Przełączenie okien po stronie klienta.** Na kliencie wciśnij
+    Alt+Tab (Windows) albo Cmd+Tab (klient na Macu). Przełącz się na inną
+    aplikację, puść klawisze, wróć do okna RDP. Na Macu pisanie daje małe
+    litery i nie wyzwala skrótów — żaden modyfikator nie „wisi”. Powtórz
+    10 razy.
+13. **AC-13** **Rozłączenie z wciśniętym Cmd.** Trzymając Cmd w oknie klienta,
+    zamknij okno klienta (albo odetnij sieć). Na **lokalnej** klawiaturze Maca
+    pisanie działa normalnie. Po ponownym połączeniu z klienta również.
+14. **AC-14** **Rozłączenie w trakcie przeciągania.** Złap okno na Macu za pasek
+    tytułu i w trakcie przeciągania rozłącz klienta. Okno zostaje puszczone
+    i nie „przykleja się” do lokalnego kursora.
+15. **AC-15** Skróty z AC-7 (Cmd+C/V, Cmd+Tab na Macu przez klienta) działają
+    bez zmian — reset ich nie zepsuł.
 
 ## 6. Poza zakresem
 
@@ -196,3 +281,8 @@ Pozostałe kryteria (AC-8…AC-10) bez zastrzeżeń w trakcie sesji.
 
 **Otwarte:** środkowy przycisk myszy (ADR-0007) — do zamknięcia z własnym
 parserem pointer-PDU albo PR-em do IronRDP.
+
+**Uzupełnienie 2026-09-17:** F-003.22–F-003.26 (reset stanu wejścia) —
+**Draft**, czeka na approve właściciela. Status Verified dotyczy wyłącznie
+F-003.1–F-003.21. Grupa jest częścią Fali 3 (`waves.md`, poprawki zgodności
+z MS-RDPBCGR).

@@ -128,9 +128,9 @@ osobną, pełną iterację, nie „przy okazji".
 | F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Implemented** — AC-2 zaliczone po iter. 1b+1c; AC-3/AC-6 do weryfikacji zamykającej |
 | F-004 | Damage tracking — wysyłanie tylko zmienionych regionów | **Implemented** — czeka na pomiar i weryfikację ręczną |
 | F-005 | Kursor — `DisplayUpdate::{RGBAPointer, CachedPointer, DefaultPointer}` | **Draft** (2026-08-24) — czeka na approve; approve = zgoda na ADR-0010 |
-| MS-RDPBCGR §6 pkt 1 | Pomiar D-1 + ADR korygujący ADR-0006: którą ścieżką naprawdę idzie obraz (P-01) | **Dodane 2026-09-17** — przed F-005 |
-| MS-RDPBCGR §6 pkt 2 | Input: Synchronize puszcza trzymane klawisze i przyciski (P-04); surogaty UTF-16 (P-05) — zmiany w F-003 / F-003a | **Dodane 2026-09-17** — przed F-005 |
-| MS-RDPBCGR §6 pkt 3 | Suppress Output / Refresh Rect (P-06) — pomiar D-2, potem spec + ADR; kandydat na przyczynę Cmd+Tab z F-004 AC-5 | **Dodane 2026-09-17** — przed F-005 |
+| **ADR-0013** (MS-RDPBCGR §6 pkt 1) | Pomiar D-1 + korekta opisu ścieżki obrazu z ADR-0006: Surface Bits `codecID = 0` zamiast RDP 6.0 (P-01) | **Proposed** (2026-09-17) — pomiar D-1 u właściciela; przed F-005 |
+| **F-003.22–F-003.26**, **F-003a.14–F-003a.18** (MS-RDPBCGR §6 pkt 2) | Input: Synchronize i koniec połączenia zwalniają trzymane klawisze i przyciski (P-04); surogaty UTF-16 i flagi zdarzeń Unicode (P-05) | **Draft** (2026-09-17) — czeka na approve; przed F-005 |
+| **F-008** (MS-RDPBCGR §6 pkt 3) | Suppress Output / Refresh Rect (P-06): przerwa w wysyłaniu, pełne odświeżenie przez ponowną aktywację; kandydat na przyczynę Cmd+Tab z F-004 AC-5 | **Draft** (2026-09-17) — czeka na approve i pomiar D-2; przed F-005 |
 | F-006 | Resize sesji — `RdpServerDisplay::request_layout` + MS-RDPEDISP | Spec do napisania |
 | F-007 (iter. 2) | Przełączanie ekranów: F-007.4/.4a/.6/.6a/.7 | Odblokowane przez F-006 |
 
@@ -143,8 +143,9 @@ F-007 iter.1b + 1c                       ← ZROBIONE (watchdog zastoju,
 F-004 damage tracking                    ← największy zysk dla używalności
         ↓
 poprawki zgodności MS-RDPBCGR            ← 02-ms-rdpbcgr.md §6 pkt 1–3
-  (P-01 ścieżka obrazu, P-04/P-05 input,    (decyzja właściciela 2026-09-17)
-   P-06 Suppress/Refresh)
+  (ADR-0013 ścieżka obrazu,                 (decyzja właściciela 2026-09-17)
+   F-003.22+ / F-003a.14+ input,
+   F-008 Suppress/Refresh)
         ↓
 F-005 kursor sprzętowy                   ← zaraz po F-004 i poprawkach (patrz niżej)
         ↓

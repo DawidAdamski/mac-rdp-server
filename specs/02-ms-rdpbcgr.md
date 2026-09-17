@@ -151,7 +151,7 @@ już odstajemy (§4), albo które F-200 musi trafić za pierwszym razem.
 |---|---|---|
 | G-1 | **Trzy konwencje prostokątów.** Włączne: `TS_RECTANGLE16` (Refresh Rect, Suppress Output), `TS_BITMAP_DATA.destRight/Bottom`, `TS_MONITOR_DEF`. Wyłączne: `destRight/Bottom` w Set Surface Bits. | 224; 191; 58; 214 |
 | G-2 | Po Refresh Rect serwer **MUST** wysłać grafikę dla tego obszaru. | 3.3.5.11.1, 330 |
-| G-3 | Po Suppress Output serwer **MUST** przestać, a po ALLOW wznowić wysyłanie. Klienci MS wymuszają pełne odświeżenie parą Suppress(0) → Suppress(1) (<38>). | 3.3.5.11.2, 330; 437–438 |
+| G-3 | Po Suppress Output serwer **MUST** przestać, a po ALLOW wznowić wysyłanie. Appendix A <38>: serwery RDP 8.0/8.1 źle obsługiwały Refresh Rect, a obejściem jest para Suppress(0) → Suppress(1), która wymusza odświeżenie całego pulpitu. | 3.3.5.11.2, 330; 437–438 |
 | G-4 | `MaxRequestSize` klienta to twardy limit złożonego fast-path update. | 2.2.7.2.6, 156 |
 | G-5 | Fast-path PDU SHOULD ≤ 16 383 B; fragmentacja SINGLE/FIRST/NEXT/LAST. | 2.2.9.1.2, 204–206 |
 | G-6 | Wskaźnik ≤ 32×32 bez `LARGE_POINTER_FLAG_96x96`. `cacheIndex` < `pointerCacheSize` **klienta**. Przy cache 0 nie wysyłamy New Pointer. | 2.2.9.1.1.4.4, 200; 2.2.7.1.5, 146; 3.3.5.9.2, 328 |
@@ -215,7 +215,9 @@ przy zmianie geometrii, a tę nasz enkoder sam loguje
 ekran, a nie fragmenty.
 
 **Mocniejszy kandydat — P-06** [I]. Cmd+Tab może zasłonić okno klienta, a klient
-MS reaguje wtedy parą Suppress(0) → Suppress(1) i/lub Refresh Rect (<38>).
+reaguje wtedy Suppress Output i/lub Refresh Rect (2.2.11.2: Refresh Rect służy
+do odmalowania fragmentów okna zasłoniętych przez lokalne aplikacje; <38>:
+para Suppress(0) → Suppress(1) jako sposób na pełne odświeżenie).
 Serwer nie odmalowuje niczego, a oba diffy „wiedzą”, że klient ma aktualny
 obraz. Jeśli klient w stanie wstrzymania nie zaprezentował aktualizacji, obszar
 stoi, dopóki piksele pod nim się nie zmienią. To pasuje do „czasami” i do
@@ -247,7 +249,9 @@ Wyniki D-1…D-6 dopisujemy do tej sekcji z datą i zmieniamy oznaczenia w §4.
 ## 6. Co warto zrobić przed F-200 (w ramach istniejących fal)
 
 **Decyzja właściciela (2026-09-17):** punkty 1–3 wchodzą do **Fali 3**, przed
-F-005 i F-006 (`waves.md`). Kolejność według stosunku zysku do ryzyka. Każdy
+F-005 i F-006 (`waves.md`). Specy: pkt 1 → **ADR-0013**, pkt 2 →
+**F-003.22–F-003.26** i **F-003a.14–F-003a.18**, pkt 3 → **F-008** (wszystkie
+Draft/Proposed, 2026-09-17). Kolejność według stosunku zysku do ryzyka. Każdy
 punkt to zmiana speca albo ADR, potem kod.
 
 1. **D-1 + nowy ADR** korygujący ADR-0006 (P-01). Tanie, a zmienia rozumienie
@@ -288,8 +292,8 @@ punkt to zmiana speca albo ADR, potem kod.
 - Fale 0–3 w statusie **Verified** (`waves.md`, F-200).
 - ADR-0011 w statusie Accepted (wariant fork) — albo, jeśli zostanie
   odrzucony, nowy ADR „architektura własnego stosu” rozstrzygający §7.2.
-- Wolne numery ADR na dziś: **0013+** (0008 zarezerwowany dla F-003a,
-  0010 dla F-005, 0012 dla F-101).
+- Wolne numery ADR na dziś: **0014+** (0008 zarezerwowany dla F-003a,
+  0010 dla F-005, 0012 dla F-101, 0013 zajęty przez ścieżkę obrazu).
 
 ### 7.2 Kształt wariantu „od zera” (odłożony — ADR-0011 §Odrzucone alternatywy)
 
