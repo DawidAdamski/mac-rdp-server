@@ -129,8 +129,8 @@ klienta).**
 
 | Data | Klient i wersja | `SET_SURFACE_BITS` | `updateCode` | `pointer_cache_size` | `max_request_size` | Uwagi |
 |---|---|---|---|---|---|---|
-| 2026-09-17 | Klient Windows, `client_build: 26100`, `client_name: "DESKTOP-2UHRU13"` (aplikacja do potwierdzenia: mstsc czy Windows App) | **Tak** — `CmdFlags(SET_SURFACE_BITS \| FRAME_MARKER)` | 4 (wniosek z flag i pustej listy kodeków; Wireshark nie wykonany) | 21 (`color_pointer_cache_size`: 20) | 8 388 608 | Log `target/measure-windowsapp.log`. `desktop_resize_flag: true`. Kodeki klienta: NSCodec (id 1), ImageRemoteFX (id 5) i dalsze — nieużywane, bo nasza lista jest pusta. Pełna klatka 5120×1440 = 29 491 200 B (`avg_frame_bytes`). |
-| | mstsc / Windows App (druga aplikacja) | | | | | |
+| 2026-09-17 | **mstsc** na Windows 11 (`client_build: 26100`, `client_name: "DESKTOP-2UHRU13"`; aplikację potwierdził właściciel) | **Tak** — `CmdFlags(SET_SURFACE_BITS \| FRAME_MARKER)` | 4 (wniosek z flag i pustej listy kodeków; Wireshark nie wykonany) | 21 (`color_pointer_cache_size`: 20) | 8 388 608 | Log `target/measure-windowsapp.log`. `desktop_resize_flag: true`. Kodeki klienta: NSCodec (id 1), ImageRemoteFX (id 5) i dalsze — nieużywane, bo nasza lista jest pusta. Pełna klatka 5120×1440 = 29 491 200 B (`avg_frame_bytes`). |
+| | Windows App (macOS) | | | | | |
 | | xfreerdp | | | | | |
 
 ## Decyzja (proponowana)

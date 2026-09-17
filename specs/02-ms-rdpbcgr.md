@@ -244,7 +244,7 @@ Bez kodu produkcyjnego: narzędzia już są (`examples/probe_client.rs`,
 
 Wyniki D-1…D-6 dopisujemy do tej sekcji z datą i zmieniamy oznaczenia w §4.
 
-### Wyniki (2026-09-17, klient Windows build 26100, log `target/measure-windowsapp.log`)
+### Wyniki (2026-09-17, mstsc na Windows 11 build 26100, log `target/measure-windowsapp.log`)
 
 | ID | Wynik | Wpływ |
 |---|---|---|
