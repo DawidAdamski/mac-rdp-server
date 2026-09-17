@@ -1,3 +1,10 @@
 /target
 # Generated TLS material must never be committed (ADR-0004).
 *.pem
+
+# Microsoft Open Specifications PDFs are large (~15 MB) and fetchable from the
+# URLs in specs/00-vision.md §7. The processed text lives in specs/ref/.
+/specs/*.pdf
+
+# macOS Finder metadata.
+.DS_Store

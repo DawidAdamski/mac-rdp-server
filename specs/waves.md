@@ -1,7 +1,7 @@
 # Roadmapa fal
 
 **Status:** Approved (2026-07-22) — dokument żywy, aktualizowany po każdej fali
-**Data ostatniej aktualizacji:** 2026-08-25
+**Data ostatniej aktualizacji:** 2026-09-17
 
 ## Reguła
 
@@ -14,7 +14,7 @@ Dopiero wtedy zaczyna się następna fala.
 | 0 | Szkielet | F-001 | **Verified** (2026-07-22) |
 | 1 | Żywy ekran | F-002 | **Verified** (2026-07-24) |
 | 2 | Input | F-003, F-003a | **F-003 Verified** (2026-07-27); F-003a — do decyzji |
-| 3 | Jakość MVP | F-004…F-007 | In progress (F-007 i F-004 Implemented; F-005 Draft; F-006 do napisania) |
+| 3 | Jakość MVP | F-004…F-007 + poprawki zgodności z MS-RDPBCGR | In progress (F-007 i F-004 Implemented; poprawki z `02-ms-rdpbcgr.md` §6 przed F-005; F-005 Draft; F-006 do napisania) |
 | 4 | Bezpieczeństwo | F-101, F-108 | Planned |
 | 5 | Produkt | F-106, F-109, F-110 | Planned |
 | 6 | Komfort | F-102, F-003a, F-105 | Planned |
@@ -128,6 +128,9 @@ osobną, pełną iterację, nie „przy okazji".
 | F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Implemented** — AC-2 zaliczone po iter. 1b+1c; AC-3/AC-6 do weryfikacji zamykającej |
 | F-004 | Damage tracking — wysyłanie tylko zmienionych regionów | **Implemented** — czeka na pomiar i weryfikację ręczną |
 | F-005 | Kursor — `DisplayUpdate::{RGBAPointer, CachedPointer, DefaultPointer}` | **Draft** (2026-08-24) — czeka na approve; approve = zgoda na ADR-0010 |
+| MS-RDPBCGR §6 pkt 1 | Pomiar D-1 + ADR korygujący ADR-0006: którą ścieżką naprawdę idzie obraz (P-01) | **Dodane 2026-09-17** — przed F-005 |
+| MS-RDPBCGR §6 pkt 2 | Input: Synchronize puszcza trzymane klawisze i przyciski (P-04); surogaty UTF-16 (P-05) — zmiany w F-003 / F-003a | **Dodane 2026-09-17** — przed F-005 |
+| MS-RDPBCGR §6 pkt 3 | Suppress Output / Refresh Rect (P-06) — pomiar D-2, potem spec + ADR; kandydat na przyczynę Cmd+Tab z F-004 AC-5 | **Dodane 2026-09-17** — przed F-005 |
 | F-006 | Resize sesji — `RdpServerDisplay::request_layout` + MS-RDPEDISP | Spec do napisania |
 | F-007 (iter. 2) | Przełączanie ekranów: F-007.4/.4a/.6/.6a/.7 | Odblokowane przez F-006 |
 
@@ -139,7 +142,11 @@ F-007 iter.1b + 1c                       ← ZROBIONE (watchdog zastoju,
         ↓
 F-004 damage tracking                    ← największy zysk dla używalności
         ↓
-F-005 kursor sprzętowy                   ← MUSI iść zaraz po F-004 (patrz niżej)
+poprawki zgodności MS-RDPBCGR            ← 02-ms-rdpbcgr.md §6 pkt 1–3
+  (P-01 ścieżka obrazu, P-04/P-05 input,    (decyzja właściciela 2026-09-17)
+   P-06 Suppress/Refresh)
+        ↓
+F-005 kursor sprzętowy                   ← zaraz po F-004 i poprawkach (patrz niżej)
         ↓
 F-006 resize sesji
         ↓
@@ -153,6 +160,14 @@ przesuwanie kursora po statycznym pulpicie będzie generować ruch sieciowy.
 F-005 (`shows_cursor(false)` + kursor jako PDU) nie jest więc kosmetyką:
 domyka zysk z F-004 i przy okazji zdejmuje z kursora opóźnienie rundy RDP,
 bo klient rysuje go lokalnie.
+
+**Dlaczego poprawki zgodności przed F-005 (2026-09-17).** Przegląd
+MS-RDPBCGR (`02-ms-rdpbcgr.md` §4) wykazał, że ADR-0006 opisuje inną ścieżkę
+obrazu niż ta, która prawdopodobnie idzie po drucie (P-01) — a na tym opisie
+stoją pomiary F-004 i założenia F-005. Z kolei P-06 (Suppress Output /
+Refresh Rect) jest najmocniejszym kandydatem na niezaliczone F-004 AC-5.
+Zamknięcie ich przed F-005 oznacza, że kursor powstaje na zweryfikowanej
+ścieżce, a nie na założonej.
 
 **Kwestia zamknięta w Fali 1 (ADR-0002):** `screencapturekit` **wystawia**
 `dirty_rects()` przez `CMSampleBufferSCExt`. Zmiana bindingu niepotrzebna.
@@ -328,7 +343,7 @@ kiedykolwiek. Fala 7 to **wyłącznie kierunek Mac → klient.**
 |---|---|---|
 | F-104 | EGFX / nowsze kodeki | `ironrdp-server` ma feature `egfx` + `with_gfx_factory` (od 0.11). |
 | F-107 | Wydajność: zero-copy / IOSurface | SCK oddaje IOSurface; `screencapturekit` ma `metal` i `is_backed_by_io_surface()`. |
-| F-200 | **Własna implementacja MS-RDPBCGR** | Cel długoterminowy. Podmiana za granicą `session`. Rozbić na PDU-po-PDU, gdy fale 0–3 będą Verified. |
+| F-200 | **Własna implementacja MS-RDPBCGR** | Cel długoterminowy. Podmiana za granicą `session`. Plan i przegląd: `02-ms-rdpbcgr.md` §7 (etapy E0–E12 → F-201…F-212). **Pierwsza propozycja (2026-09-17): własny fork IronRDP rozwijany przez AI według speców — ADR-0011 (Proposed).** Start, gdy fale 0–3 będą Verified. |
 
 **Przeniesione z backlogu do fal (2026-08-07):** F-101 → Fala 4,
 F-102 i F-105 → Fala 6, F-106 → Fala 5. F-108, F-109 i F-110 to nowe ID nadane
