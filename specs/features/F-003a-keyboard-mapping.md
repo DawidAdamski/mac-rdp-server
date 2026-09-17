@@ -6,10 +6,10 @@
 - **ADR:** ADR-0003 (CGEvent), ADR-0001 (silnik), **ADR-0008** (strategia
   scancode vs Unicode — do napisania razem z approve tego speca)
 - **Poprzednik:** F-003 (szkielet klawiatury — Verified 2026-07-27)
-- **Uzupełnienie 2026-09-17 (Draft):** F-003a.14–F-003a.18 — naprawa ścieżki
+- **Uzupełnienie 2026-09-17 (Approved (2026-09-17, właściciel)):** F-003a.14–F-003a.18 — naprawa ścieżki
   Unicode (surogaty, flagi modyfikatorów). Źródło: `02-ms-rdpbcgr.md` §4 P-05.
-  **Proponowane do zatwierdzenia niezależnie od ADR-0008**: to poprawki błędu,
-  a nie wybór strategii scancode/Unicode.
+  **Zatwierdzone niezależnie od ADR-0008** (reszta F-003a pozostaje Draft):
+  to poprawki błędu, a nie wybór strategii scancode/Unicode.
 
 ## 1. Cel
 
@@ -114,9 +114,9 @@ Layout-independence wymaga poznania **zamierzonego znaku**. Są dwie drogi:
   Unicode (w tym parę surogatów), żeby ścieżkę składania dało się sprawdzić
   bez GUI (samego wstrzyknięcia i tak nie zweryfikuje bez człowieka).
 
-### Naprawa ścieżki Unicode — uzupełnienie 2026-09-17 (Draft)
+### Naprawa ścieżki Unicode — uzupełnienie 2026-09-17
 
-**Status tej grupy: Draft (2026-09-17).** Doprecyzowuje F-003a.4, F-003a.5
+**Status tej grupy: Approved (2026-09-17, właściciel).** Doprecyzowuje F-003a.4, F-003a.5
 i F-003a.11. Ich treść zostaje bez zmian; wymagania poniżej opisują, jak
 konkretnie mają być spełnione.
 
@@ -205,7 +205,7 @@ Część czysta — testy jednostkowe. Część macOS — **checklista ręczna**
 8. **AC-8** Kilkuminutowa sesja pisania: brak zawieszonych modyfikatorów,
    brak zgubionych znaków przy szybkim pisaniu.
 
-**Uzupełnienie 2026-09-17 (Draft) — naprawa ścieżki Unicode (F-003a.14–F-003a.18).**
+**Uzupełnienie 2026-09-17 — naprawa ścieżki Unicode (F-003a.14–F-003a.18).**
 
 9. **AC-9** Testy jednostkowe maszyny stanów (część CI):
    - `↓D83D ↓DE00` ⇒ jedno wciśnięcie znaku 😀 (U+1F600);
@@ -263,7 +263,7 @@ Część czysta — testy jednostkowe. Część macOS — **checklista ręczna**
 **Draft** — czeka na approve właściciela. Approve F-003a = zgoda na napisanie
 ADR-0008 (strategia scancode/Unicode) przed kodem.
 
-**Uzupełnienie 2026-09-17:** F-003a.14–F-003a.18 — **Draft**. Proponowane do
-osobnego approve jeszcze przed ADR-0008, bo naprawiają błąd widoczny dziś
+**Uzupełnienie 2026-09-17:** F-003a.14–F-003a.18 — **Approved** (2026-09-17,
+właściciel), osobno i przed ADR-0008, bo naprawiają błąd widoczny dziś
 (`02-ms-rdpbcgr.md` §4 P-05) i nie przesądzają strategii. Grupa jest częścią
 Fali 3 (`waves.md`).

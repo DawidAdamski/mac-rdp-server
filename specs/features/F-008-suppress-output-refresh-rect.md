@@ -1,7 +1,7 @@
 # F-008 — Suppress Output i Refresh Rect: przerwa w wysyłaniu i pełne odświeżenie
 
 - **Fala:** 3 (Jakość MVP) — poprawka zgodności z MS-RDPBCGR, przed F-005
-- **Status:** Draft
+- **Status:** Approved (2026-09-17, właściciel)
 - **Data:** 2026-09-17
 - **ADR:** ADR-0013 (rzeczywista ścieżka obrazu, Proposed), ADR-0009 (damage),
   ADR-0011 (fork IronRDP, Proposed — docelowe domknięcie znanej luki, §5)
@@ -259,8 +259,8 @@ zachowanie okna klienta i macOS-a nie daje się sprawdzić bez GUI.
 
 ## 6. Status
 
-**Draft** (2026-09-17) — czeka na approve właściciela i na pomiar D-2 (AC-2),
-który MUSI poprzedzić implementację F-008.3 i kolejnych.
+**Approved** (2026-09-17, właściciel). Implementacja F-008.3 i kolejnych
+czeka na pomiar D-2 (AC-2), zgodnie z F-008.1.
 
 ### Wyniki pomiarów
 

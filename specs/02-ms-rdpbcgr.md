@@ -250,8 +250,8 @@ Wyniki D-1…D-6 dopisujemy do tej sekcji z datą i zmieniamy oznaczenia w §4.
 
 **Decyzja właściciela (2026-09-17):** punkty 1–3 wchodzą do **Fali 3**, przed
 F-005 i F-006 (`waves.md`). Specy: pkt 1 → **ADR-0013**, pkt 2 →
-**F-003.22–F-003.26** i **F-003a.14–F-003a.18**, pkt 3 → **F-008** (wszystkie
-Draft/Proposed, 2026-09-17). Kolejność według stosunku zysku do ryzyka. Każdy
+**F-003.22–F-003.26** i **F-003a.14–F-003a.18**, pkt 3 → **F-008**. Specy
+funkcjonalności Approved 2026-09-17; ADR-0013 Proposed (czeka na D-1). Kolejność według stosunku zysku do ryzyka. Każdy
 punkt to zmiana speca albo ADR, potem kod.
 
 1. **D-1 + nowy ADR** korygujący ADR-0006 (P-01). Tanie, a zmienia rozumienie

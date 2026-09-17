@@ -5,7 +5,7 @@
 - **Data:** 2026-07-24
 - **ADR:** ADR-0003 (CGEvent), ADR-0001 (silnik), ADR-0007 (środkowy przycisk — ograniczenie IronRDP)
 - **Powiązane:** F-003a (mapowanie klawiatury — osobny spec, bo to najtrudniejsza część)
-- **Uzupełnienie 2026-09-17 (Draft):** F-003.22–F-003.26 — reset stanu wejścia
+- **Uzupełnienie 2026-09-17 (Approved (2026-09-17, właściciel)):** F-003.22–F-003.26 — reset stanu wejścia
   (Synchronize, koniec połączenia). Źródło: przegląd `02-ms-rdpbcgr.md` §4 P-04.
   Wymagania F-003.1–F-003.21 bez zmian.
 
@@ -119,9 +119,9 @@ tabela na kilkaset wpisów zależna od układu i zasługuje na własną iteracj�
   je przyjmuje i konwertuje (wstrzyknięcia do systemu i tak nie da się
   zweryfikować bez człowieka).
 
-### Reset stanu wejścia — uzupełnienie 2026-09-17 (Draft)
+### Reset stanu wejścia — uzupełnienie 2026-09-17
 
-**Status tej grupy: Draft (2026-09-17).** Pozostałe wymagania F-003 zachowują
+**Status tej grupy: Approved (2026-09-17, właściciel).** Pozostałe wymagania F-003 zachowują
 swój status.
 
 Kontekst. MS-RDPBCGR 2.2.8.1.1.3.1.1.5 (str. 173) definiuje Synchronize Event
@@ -209,7 +209,7 @@ Sprawdzane ręcznie prawdziwym klientem.
 10. **AC-10** Sesja pozostaje sterowalna przez kilka minut; brak „zawieszonych"
     modyfikatorów (nie zostaje wciśnięty Shift po zwolnieniu).
 
-**Uzupełnienie 2026-09-17 (Draft) — reset stanu wejścia (F-003.22–F-003.26).**
+**Uzupełnienie 2026-09-17 — reset stanu wejścia (F-003.22–F-003.26).**
 Testy jednostkowe (część CI, AC-11) i checklista ręczna (AC-12…AC-15):
 
 11. **AC-11** Testy jednostkowe dla F-003.25. Każdy ma w nazwie albo komentarzu
@@ -283,6 +283,6 @@ Pozostałe kryteria (AC-8…AC-10) bez zastrzeżeń w trakcie sesji.
 parserem pointer-PDU albo PR-em do IronRDP.
 
 **Uzupełnienie 2026-09-17:** F-003.22–F-003.26 (reset stanu wejścia) —
-**Draft**, czeka na approve właściciela. Status Verified dotyczy wyłącznie
+**Approved** (2026-09-17, właściciel). Status Verified dotyczy wyłącznie
 F-003.1–F-003.21. Grupa jest częścią Fali 3 (`waves.md`, poprawki zgodności
 z MS-RDPBCGR).
