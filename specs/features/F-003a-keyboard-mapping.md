@@ -169,6 +169,17 @@ Kontekst.
 - **F-003a.18** (MUST) Testy jednostkowe MUSZĄ pokrywać przypadki wymienione
   w AC-9, a każdy test MUSI mieć w nazwie albo komentarzu ID wymagania.
   Istniejące testy przechodzą bez zmian (F-003a.12).
+- **F-003a.19** (SHOULD) **Draft (2026-09-18).** Diagnostyka odbioru
+  klawiatury. `session` POWINIEN logować na poziomie `trace` każde zdarzenie
+  klawiatury odebrane od IronRDP, **przed** konwersją na nasz `KeyEvent`.
+  - Wpis zawiera rodzaj zdarzenia (scancode, Unicode, Synchronize), kod
+    (scancode z flagą `extended` albo jednostkę UTF-16 szesnastkowo) i kierunek.
+  - Target logu: `mac_rdp_server::session::input`. Tylko `trace`, nigdy
+    `debug` ani wyżej: taki log zawiera wszystko, co użytkownik pisze, także
+    hasła.
+  - Uzasadnienie: AC-10 nie przeszło 2026-09-18. Strona Maca jest sprawdzona
+    (zob. §8), więc trzeba ustalić, czy mstsc w ogóle wysyła zdarzenia Unicode
+    dla emoji z panelu Win+.
 
 ## 4. Odniesienia do dokumentacji
 
@@ -227,6 +238,9 @@ Część czysta — testy jednostkowe. Część macOS — **checklista ręczna**
       wyzwala;
     - po Alt+Tab po stronie klienta w trakcie wpisywania emoji nic nie „wisi”
       (F-003a.17).
+11. **AC-11** (F-003a.19) Z `MAC_RDP_LOG=debug,mac_rdp_server::session::input=trace`
+    każde naciśnięcie klawisza w kliencie daje w logu wpis z kodem i kierunkiem.
+    Przy `MAC_RDP_LOG=debug` takich wpisów nie ma.
 
 ## 6. Poza zakresem
 
@@ -280,3 +294,16 @@ test ręczny właściciela (AC-10, BRAMKA B z `goals.md`) → Verified.
   zdarzeń, więc nie wiadomo, czy mstsc cokolwiek wysłał. Obie strony
   deklarują `InputFlags::UNICODE` (Confirm Active). Przyczyna do ustalenia
   przed Verified.
+
+**Diagnoza AC-10, 2026-09-18.** Program testowy spoza repo (scratchpad) wstrzyknął
+do TextEdit 😀 i `ą` dokładnie tak jak `CgEventSink`, czyli:
+- keycode 0, łańcuch UTF-16, flagi 0, tap HID, źródło `HIDSystemState`.
+
+Wszystkie sześć wariantów dotarło:
+- HID i session tap;
+- źródła HID i combined;
+- `postToPid`;
+- łańcuch tylko na key-down.
+
+Strona Maca działa. Podejrzenie: mstsc nie wysyła emoji z panelu Win+.
+jako zdarzeń Unicode, co jest do potwierdzenia przez F-003a.19 (Draft).
