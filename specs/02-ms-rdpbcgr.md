@@ -252,6 +252,7 @@ Wyniki D-1…D-6 dopisujemy do tej sekcji z datą i zmieniamy oznaczenia w §4.
 | D-2 (częściowy) | Przełączenie po stronie klienta daje Suppress(0) → Refresh Rect → Suppress(1) → **SyncLocks z key-up modyfikatorów**. Przy przerwie serwer wysyła dalej (~170 MB w 10 s). Brak komunikatów o odrzucaniu bitmap. Szczegóły w F-008 §6. | P-06 potwierdzone; hipoteza „odrzucanie poza pulpitem” (F-004 §8 pkt 6) bez śladu w logu. Scenariusz z P-04 (Synchronize po przełączeniu) potwierdzony |
 | D-5 | `pointer_cache_size = 21`, `color_pointer_cache_size = 20`, `max_request_size = 8 388 608`, `desktop_resize_flag = true` | **F-005.14 (cache 32) przekracza limit tego klienta** — do poprawy przed approve F-005 (P-12) |
 | D-6 | Tak: po powrocie fokusu klient wysyła `SyncLocks`, a zaraz potem zwolnienia Shift/Ctrl | Potwierdza zasadność F-003.22 |
+| D-2 (drugi przebieg, 2026-09-18, `target/measure-mstsc-2.log`) | Z działającym wejściem **brak zamrożeń**. Jeden Suppress Output bez wznowienia; serwer wysłał w tym stanie ~10,3 GB w 5,7 min. Szczegóły w F-008 §6 | P-06 potwierdzone po raz drugi; objaw Cmd+Tab (F-004 AC-5) w tym przebiegu **nie wystąpił** |
 
 
 ---
