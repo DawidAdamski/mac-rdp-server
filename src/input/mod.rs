@@ -8,6 +8,7 @@ pub mod cgevent;
 pub mod keymap;
 pub mod logging;
 pub mod state;
+pub mod unicode;
 
 use anyhow::Result;
 use tokio::sync::mpsc;
