@@ -297,3 +297,32 @@ pokrywa to pośrednio: cisza zaczyna się w oknie karencji 300 ms.
 | D-2 / AC-2 (częściowy) | 2026-09-17 | mstsc, Windows 11 build 26100 (log `target/measure-windowsapp.log` — nazwa pliku myląca, klientem był mstsc) | Wstrzykiwanie wejścia było wyłączone (brak Accessibility), więc wykonany tylko wariant „przełączenie **po stronie klienta**”. Sekwencja od klienta: **14:09:22.475** Suppress Output (`suppress=true`) → po 1,6 s **14:09:24.054** Refresh Rect, zaraz po nim **14:09:24.057** Suppress Output (`suppress=false`) → **14:09:24.152** Tab↑, **SyncLocks**, LShift↑, RShift↑, LCtrl↑. Druga przerwa od **14:09:31.028** (`suppress=true`, bez wznowienia do końca logu). **W trakcie tej przerwy serwer wysłał dalej ~170 MB** (`bytes_sent` 45 580 288 → 215 867 392 między 14:09:30 a 14:09:40, pełne klatki „too many separate regions”) — naruszenie G-3 potwierdzone na prawdziwym kliencie. Komunikatów `Dropping bitmap update…` ani `Failed to extract bitmap subregion` **brak**. Wariant „Cmd+Tab na Macu” i pytanie o ruch myszą — do powtórzenia z Accessibility. |
 | D-2 / AC-2 (drugi przebieg, z działającym wejściem) | 2026-09-18 | mstsc, Windows 11 build 26100 (log `target/measure-mstsc-2.log`, 07:36–07:43 UTC) | Accessibility nadane, wejście wstrzykiwane (0 wpisów `not injected`). **Właściciel nie zaobserwował zamrożenia obrazu** („seems to be working”). Klient wysłał **jeden** Suppress Output (`suppress=true`, 07:38:02 UTC) i **nie wysłał wznowienia ani Refresh Rect** do końca sesji (07:43:46). Przez te 5,7 min serwer wysłał dalej **~10,3 GB** (`bytes_sent` 3 343 106 048 → 13 643 169 792, ok. 34 MB/s), w większości pełne klatki „too many separate regions” (109 w logu). Komunikatów `Dropping bitmap update…` / `Failed to extract bitmap subregion` brak. **Wyjaśnione przez właściciela (2026-09-18):** o 09:38:02 czasu lokalnego okno mstsc zostało **zminimalizowane** i pozostało tak do końca sesji — brak wznowienia jest więc poprawny, a stan „suppressed” w IronRDP wiarygodny. Założenie F-008.6/F-008.9 (wznowienie przychodzi przy przywróceniu okna) nie zostało obalone; samo przywrócenie sprawdza AC-3. Cały ruch w tym oknie (~10,3 GB) był zbędny — wprost to, co usuwa F-008.4. |
 | Połączenie (obserwacja uboczna, oba przebiegi) | 2026-09-17/18 | mstsc | Pierwsza próba połączenia kończy się `Connection reset by peer` w finalizacji, druga (po ~1,2 s) się udaje. Klient żąda `SSL \| HYBRID \| HYBRID_EX`, serwer wybiera `SSL`. Hipoteza [I]: mstsc zrywa pierwsze połączenie przy ostrzeżeniu o certyfikacie self-signed. |
+
+### Test ręczny — BRAMKA C, pierwszy przebieg (2026-09-18)
+
+Klient: mstsc, Windows 11 build 26100. Log `target/measure-mstsc-6.log`
+(lokalny), 12:39–12:45 UTC, `--encoder damage`, domyślne `--max-fps`.
+Właściciel: wykonane wszystko poza punktami 5 i 6 checklisty (AC-7, AC-8).
+
+- **AC-3 — spełnione, potwierdzone logiem.**
+  - 12:40:51 `client paused display updates`.
+  - Przez 145 s przerwy (wideo na Macu) zero wpisów `damage stats`: enkoder
+    nie był wołany, nic nie wysłano.
+  - 12:43:17 `client resumed display updates paused_ms=145360
+    skipped_frames=4262`; 16 ms później `full refresh: reactivating`, a po
+    150 ms `Client accepted` (ponowna aktywacja zakończona).
+  - Kolejność PDU od mstsc przy przywróceniu: Refresh Rect (zeruje flagę),
+    potem Suppress Output `suppress=false`.
+- **AC-4** — spełnione według właściciela. Log tego nie rozstrzyga.
+- **AC-5** — sesja się nie rozłączyła: po 12:40:17 brak `connection ended`
+  do końca logu, a obie ponowne aktywacje (12:43:17, 12:44:57) zakończyły się
+  `Client accepted` w 150–290 ms. Rozmiaru, skalowania i migania log nie
+  pokazuje.
+- **AC-6** — w logu tylko dwa cykle przerwy (12:40:51, 12:44:55); seria
+  10 minimalizacji w ~5 s się nie pojawia.
+- **AC-7, AC-8** — niewykonane w tym przebiegu.
+- **AC-9** — sesja trwała ~5 min, a kryterium wymaga kilkunastu.
+- Obserwacja poza F-008: przy odtwarzanym wideo `damage` wysyła do
+  ~190 MB/s (5120×1440, pełne klatki „too many separate regions”). To temat
+  ADR-0013 i F-104, nie F-008.
+
