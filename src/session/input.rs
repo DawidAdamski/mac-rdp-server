@@ -24,6 +24,15 @@ impl RdpServerInputHandler for MacRdpInput {
     /// Runs on the server's connection loop and must not block
     /// (`01-architecture.md` §4a) — convert and hand off, nothing more.
     fn keyboard(&mut self, event: KeyboardEvent) {
+        // F-003a.19: trace only — this records everything the user types.
+        let received = KeyTrace::of(&event);
+        trace!(
+            kind = received.kind,
+            code = format_args!("{:#06X}", received.code),
+            extended = received.extended,
+            direction = received.direction,
+            "key received"
+        );
         match convert::key_event(&event) {
             Some(ev) => self.dispatcher.send(InputEvent::Key(ev)),
             None => trace!(?event, "unhandled keyboard event"),
@@ -34,6 +43,34 @@ impl RdpServerInputHandler for MacRdpInput {
         match convert::pointer_event(&event) {
             Some(ev) => self.dispatcher.send(InputEvent::Pointer(ev)),
             None => trace!(?event, "unhandled mouse event"),
+        }
+    }
+}
+
+/// What a received keyboard event was, before conversion (F-003a.19).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct KeyTrace {
+    kind: &'static str,
+    /// Scancode, UTF-16 code unit, or the raw Synchronize flags.
+    code: u16,
+    extended: bool,
+    direction: &'static str,
+}
+
+impl KeyTrace {
+    fn of(event: &KeyboardEvent) -> Self {
+        let (kind, code, extended, direction) = match *event {
+            KeyboardEvent::Pressed { code, extended } => ("scancode", u16::from(code), extended, "down"),
+            KeyboardEvent::Released { code, extended } => ("scancode", u16::from(code), extended, "up"),
+            KeyboardEvent::UnicodePressed(unit) => ("unicode", unit, false, "down"),
+            KeyboardEvent::UnicodeReleased(unit) => ("unicode", unit, false, "up"),
+            KeyboardEvent::Synchronize(flags) => ("sync", u16::from(flags.bits()), false, "-"),
+        };
+        Self {
+            kind,
+            code,
+            extended,
+            direction,
         }
     }
 }
@@ -82,6 +119,42 @@ mod tests {
 
     fn peer() -> SocketAddr {
         SocketAddr::from(([127, 0, 0, 1], 50_000))
+    }
+
+    /// F-003a.19: every received key is described with kind, code and
+    /// direction — in particular each UTF-16 half of an emoji.
+    #[test]
+    fn f003a_19_received_keys_are_described_for_the_trace() {
+        assert_eq!(
+            KeyTrace::of(&KeyboardEvent::Pressed {
+                code: 0x5B,
+                extended: true
+            }),
+            KeyTrace {
+                kind: "scancode",
+                code: 0x5B,
+                extended: true,
+                direction: "down"
+            }
+        );
+        assert_eq!(
+            KeyTrace::of(&KeyboardEvent::UnicodePressed(0xD83D)),
+            KeyTrace {
+                kind: "unicode",
+                code: 0xD83D,
+                extended: false,
+                direction: "down"
+            }
+        );
+        assert_eq!(KeyTrace::of(&KeyboardEvent::UnicodeReleased(0xDE00)).direction, "up");
+        assert_eq!(
+            KeyTrace::of(&KeyboardEvent::Released {
+                code: 0x1E,
+                extended: false
+            })
+            .direction,
+            "up"
+        );
     }
 
     /// F-003.24: both ends of a connection — including one that ended with an
