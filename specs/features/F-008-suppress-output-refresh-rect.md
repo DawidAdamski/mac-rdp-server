@@ -320,8 +320,12 @@ Właściciel: wykonane wszystko poza punktami 5 i 6 checklisty (AC-7, AC-8).
   pokazuje.
 - **AC-6** — w logu tylko dwa cykle przerwy (12:40:51, 12:44:55); seria
   10 minimalizacji w ~5 s się nie pojawia.
-- **AC-7, AC-8** — niewykonane w tym przebiegu.
-- **AC-9** — sesja trwała ~5 min, a kryterium wymaga kilkunastu.
+- **AC-7** — spełnione przy domyślnym `--max-fps` według właściciela
+  (Cmd+Tab, zamknięcie okna, przeciąganie; bez fragmentów poprzedniej
+  treści). Powtórzenie przy `--max-fps 5` niewykonane.
+- **AC-8** — niewykonane.
+- **AC-9** — sesja trwała ~5 min, a kryterium mówi o kilkunastu minutach.
+  Właściciel uznał 5 min za wystarczające (decyzja 2026-09-18).
 - Obserwacja poza F-008: przy odtwarzanym wideo `damage` wysyła do
   ~190 MB/s (5120×1440, pełne klatki „too many separate regions”). To temat
   ADR-0013 i F-104, nie F-008.
