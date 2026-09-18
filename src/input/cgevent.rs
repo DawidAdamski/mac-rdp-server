@@ -305,6 +305,13 @@ impl InputSink for CgEventSink {
         Ok(())
     }
 
+    /// F-003.24: a connection ended or a new one starts. Without Accessibility
+    /// there is nothing to release in the system, but the state is reset anyway.
+    fn reset_session(&mut self) {
+        let source = self.source.clone();
+        self.reset(source.as_ref(), ResetCause::SessionEnded);
+    }
+
     /// F-007.17. The watcher republishes unconditionally, so most calls are
     /// no-ops and only a real move is logged.
     fn set_geometry(&mut self, geometry: ScreenGeometry) {
@@ -536,6 +543,23 @@ mod tests {
 
         assert_eq!(sink.flags().bits(), flag::ALPHA_SHIFT, "Cmd released, Caps Lock set");
         assert_eq!(sink.buttons.move_kind(), MoveKind::Move);
+    }
+
+    /// F-003.24: the end of a connection releases held keys and buttons but
+    /// keeps Caps Lock, and drops a pending surrogate (F-003a.17).
+    #[test]
+    fn f003_24_session_reset_releases_held_state_but_keeps_caps_lock() {
+        let mut sink = sink_at(ScreenGeometry::new(0.0, 0.0, 1.0), CGPoint::new(0.0, 0.0));
+        sink.modifiers.set_caps_lock(true);
+        sink.modifiers.set(keymap::Modifier::CommandLeft, true);
+        sink.buttons.set(MouseButton::Right, true);
+        sink.surrogates.push(0xD83D, false);
+
+        sink.reset_session();
+
+        assert_eq!(sink.flags().bits(), flag::ALPHA_SHIFT);
+        assert_eq!(sink.buttons.move_kind(), MoveKind::Move);
+        assert_eq!(sink.surrogates.push(0xDE00, false).emit, None);
     }
 
     /// F-003a.16 (AC-9): a Unicode event while Cmd is held has flags 0, and

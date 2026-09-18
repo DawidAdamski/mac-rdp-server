@@ -18,7 +18,7 @@ use ironrdp_server::{RdpServer, TlsIdentityCtx};
 use tracing::info;
 
 pub use display::MacRdpDisplay;
-pub use input::MacRdpInput;
+pub use input::{MacRdpInput, SessionResetHandler};
 
 use crate::capture::FrameStream;
 use crate::config::EncoderKind;
@@ -68,6 +68,8 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
         EncoderKind::Full => Box::new(|| Box::new(FullFrameEncoder::new()) as Box<dyn Encoder>),
     };
     let display = MacRdpDisplay::new(stream, desktop_width, desktop_height, make_encoder);
+    // F-003.24: connection ends reset the input state through the same queue.
+    let resets = SessionResetHandler::new(dispatcher.clone());
     let handler = MacRdpInput::new(dispatcher);
 
     // TLS only, no NLA: `with_hybrid` is F-101 (ADR-0004).
@@ -86,6 +88,7 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
         // instead of Bitmap Updates, and the result decodes to a fully black
         // screen. Measured with `examples/probe_client`, see ADR-0006.
         .with_bitmap_codecs(BitmapCodecs(Vec::new()))
+        .with_connection_handler(Some(Box::new(resets)))
         .build();
 
     info!(%bind_addr, ?encoder, "serving RDP over TLS");

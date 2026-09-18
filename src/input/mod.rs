@@ -78,6 +78,13 @@ pub enum InputEvent {
     /// between two events, never in the middle of a burst of moves, and one
     /// ordered queue gives that for free.
     Geometry(state::ScreenGeometry),
+    /// An RDP connection ended or a new one is starting (F-003.24): release
+    /// everything still held, leave the toggle keys alone.
+    ///
+    /// Same channel as the input for the same reason as `Geometry`: the reset
+    /// must land after the last event of the old connection and before the
+    /// first one of the new (F-003.23).
+    SessionReset,
 }
 
 /// Destination for input events.
@@ -99,6 +106,11 @@ pub trait InputSink {
     fn set_geometry(&mut self, geometry: state::ScreenGeometry) {
         let _ = geometry;
     }
+
+    /// Releases everything held at the end of a connection (F-003.24).
+    ///
+    /// Defaults to nothing: only a sink that injects has state to release.
+    fn reset_session(&mut self) {}
 }
 
 /// Default capacity of the channel between the RDP thread and the sink.
@@ -175,6 +187,10 @@ where
                     InputEvent::Key(ev) => sink.key(ev),
                     InputEvent::Geometry(geometry) => {
                         sink.set_geometry(geometry);
+                        Ok(())
+                    }
+                    InputEvent::SessionReset => {
+                        sink.reset_session();
                         Ok(())
                     }
                 };
@@ -268,6 +284,50 @@ mod tests {
                 InputEvent::Geometry(moved),
                 InputEvent::Pointer(PointerEvent::MoveAbsolute { x: 2, y: 2 }),
             ]
+        );
+    }
+
+    /// F-003.24, F-003.23: the end-of-connection reset rides the input queue,
+    /// so it lands exactly between the old connection's events and the new one's.
+    #[tokio::test]
+    async fn f003_24_session_reset_reaches_the_sink_in_order() {
+        struct Recorder(std::sync::Arc<std::sync::Mutex<Vec<InputEvent>>>);
+        impl InputSink for Recorder {
+            fn pointer(&mut self, ev: PointerEvent) -> Result<()> {
+                self.0.lock().expect("poisoned").push(InputEvent::Pointer(ev));
+                Ok(())
+            }
+            fn key(&mut self, ev: KeyEvent) -> Result<()> {
+                self.0.lock().expect("poisoned").push(InputEvent::Key(ev));
+                Ok(())
+            }
+            fn reset_session(&mut self) {
+                self.0.lock().expect("poisoned").push(InputEvent::SessionReset);
+            }
+        }
+
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorder = Recorder(std::sync::Arc::clone(&seen));
+        let mut dispatcher = spawn(move || Box::new(recorder) as Box<dyn InputSink>, 8);
+
+        let cmd_down = InputEvent::Key(KeyEvent::Scancode {
+            code: 0x5B,
+            extended: true,
+            pressed: true,
+        });
+        let a_down = InputEvent::Key(KeyEvent::Scancode {
+            code: 0x1E,
+            extended: false,
+            pressed: true,
+        });
+        dispatcher.send(cmd_down);
+        dispatcher.send(InputEvent::SessionReset);
+        dispatcher.send(a_down);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        assert_eq!(
+            *seen.lock().expect("poisoned"),
+            vec![cmd_down, InputEvent::SessionReset, a_down]
         );
     }
 
