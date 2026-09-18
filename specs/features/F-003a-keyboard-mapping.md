@@ -169,7 +169,7 @@ Kontekst.
 - **F-003a.18** (MUST) Testy jednostkowe MUSZĄ pokrywać przypadki wymienione
   w AC-9, a każdy test MUSI mieć w nazwie albo komentarzu ID wymagania.
   Istniejące testy przechodzą bez zmian (F-003a.12).
-- **F-003a.19** (SHOULD) **Approved (2026-09-18, właściciel).** Diagnostyka odbioru
+- **F-003a.19** (SHOULD) **Implemented (2026-09-18)** (Approved 2026-09-18, właściciel; test `session::input::tests::f003a_19_received_keys_are_described_for_the_trace`). Diagnostyka odbioru
   klawiatury. `session` POWINIEN logować na poziomie `trace` każde zdarzenie
   klawiatury odebrane od IronRDP, **przed** konwersją na nasz `KeyEvent`.
   - Wpis zawiera rodzaj zdarzenia (scancode, Unicode, Synchronize), kod
