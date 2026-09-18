@@ -12,6 +12,8 @@ mod suppress;
 
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use anyhow::{Context as _, Result};
 use ironrdp_pdu::rdp::capability_sets::BitmapCodecs;
@@ -68,7 +70,16 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
         EncoderKind::Damage => Box::new(|| Box::new(DamageEncoder::new()) as Box<dyn Encoder>),
         EncoderKind::Full => Box::new(|| Box::new(FullFrameEncoder::new()) as Box<dyn Encoder>),
     };
-    let display = MacRdpDisplay::new(stream, desktop_width, desktop_height, make_encoder);
+    // F-008.3: one flag, written by IronRDP on Suppress Output / Refresh Rect
+    // and read by our display loop. It does not leave `session`.
+    let suppressed = Arc::new(AtomicBool::new(false));
+    let display = MacRdpDisplay::new(
+        stream,
+        desktop_width,
+        desktop_height,
+        make_encoder,
+        Arc::clone(&suppressed),
+    );
     // F-003.24: connection ends reset the input state through the same queue.
     let resets = SessionResetHandler::new(dispatcher.clone());
     let handler = MacRdpInput::new(dispatcher);
@@ -90,6 +101,7 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
         // screen. Measured with `examples/probe_client`, see ADR-0006.
         .with_bitmap_codecs(BitmapCodecs(Vec::new()))
         .with_connection_handler(Some(Box::new(resets)))
+        .with_display_suppressed_handle(suppressed)
         .build();
 
     info!(%bind_addr, ?encoder, "serving RDP over TLS");

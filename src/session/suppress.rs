@@ -91,12 +91,6 @@ impl SuppressTracker {
         self.last_refresh = Some(now);
     }
 
-    /// A refresh is waiting for the spacing window to end (F-008.9).
-    #[must_use]
-    pub fn refresh_deferred(&self, now: Instant) -> bool {
-        self.suppressed_since.is_none() && self.refresh_pending && !self.spacing_elapsed(now)
-    }
-
     fn spacing_elapsed(&self, now: Instant) -> bool {
         self.last_refresh
             .is_none_or(|last| now.saturating_duration_since(last) >= REFRESH_SPACING)
@@ -171,7 +165,6 @@ mod tests {
         tracker.observe(true, at(t0, 300));
         tracker.observe(false, at(t0, 400));
         assert_eq!(tracker.state(at(t0, 400)), SuppressState::Idle, "inside the 1 s window");
-        assert!(tracker.refresh_deferred(at(t0, 400)));
 
         assert_eq!(
             tracker.state(at(t0, 1_100)),
