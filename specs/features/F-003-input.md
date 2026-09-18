@@ -5,7 +5,7 @@
 - **Data:** 2026-07-24
 - **ADR:** ADR-0003 (CGEvent), ADR-0001 (silnik), ADR-0007 (środkowy przycisk — ograniczenie IronRDP)
 - **Powiązane:** F-003a (mapowanie klawiatury — osobny spec, bo to najtrudniejsza część)
-- **Uzupełnienie 2026-09-17 (Approved (2026-09-17, właściciel)):** F-003.22–F-003.26 — reset stanu wejścia
+- **Uzupełnienie 2026-09-17 (Implemented (2026-09-18); Approved 2026-09-17, właściciel):** F-003.22–F-003.26 — reset stanu wejścia
   (Synchronize, koniec połączenia). Źródło: przegląd `02-ms-rdpbcgr.md` §4 P-04.
   Wymagania F-003.1–F-003.21 bez zmian.
 
@@ -121,7 +121,7 @@ tabela na kilkaset wpisów zależna od układu i zasługuje na własną iteracj�
 
 ### Reset stanu wejścia — uzupełnienie 2026-09-17
 
-**Status tej grupy: Approved (2026-09-17, właściciel).** Pozostałe wymagania F-003 zachowują
+**Status tej grupy: Implemented (2026-09-18)** (Approved 2026-09-17, właściciel). Pozostałe wymagania F-003 zachowują
 swój status.
 
 Kontekst. MS-RDPBCGR 2.2.8.1.1.3.1.1.5 (str. 173) definiuje Synchronize Event
@@ -286,3 +286,9 @@ parserem pointer-PDU albo PR-em do IronRDP.
 **Approved** (2026-09-17, właściciel). Status Verified dotyczy wyłącznie
 F-003.1–F-003.21. Grupa jest częścią Fali 3 (`waves.md`, poprawki zgodności
 z MS-RDPBCGR).
+
+**Implemented (2026-09-18):** F-003.22–F-003.26 (commity `5e57e3e`, `d0169ed`,
+`f4978d8`). Testy jednostkowe z ID w nazwie: `input::state::tests::f003_2*`,
+`input::cgevent::tests::f003_2*`, `input::tests::f003_24_*`,
+`session::input::tests::f003_24_*`. Czeka na test ręczny właściciela
+(AC-11…AC-15, BRAMKA B z `goals.md`) → Verified.

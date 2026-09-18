@@ -6,7 +6,7 @@
 - **ADR:** ADR-0003 (CGEvent), ADR-0001 (silnik), **ADR-0008** (strategia
   scancode vs Unicode — do napisania razem z approve tego speca)
 - **Poprzednik:** F-003 (szkielet klawiatury — Verified 2026-07-27)
-- **Uzupełnienie 2026-09-17 (Approved (2026-09-17, właściciel)):** F-003a.14–F-003a.18 — naprawa ścieżki
+- **Uzupełnienie 2026-09-17 (Implemented (2026-09-18); Approved 2026-09-17, właściciel):** F-003a.14–F-003a.18 — naprawa ścieżki
   Unicode (surogaty, flagi modyfikatorów). Źródło: `02-ms-rdpbcgr.md` §4 P-05.
   **Zatwierdzone niezależnie od ADR-0008** (reszta F-003a pozostaje Draft):
   to poprawki błędu, a nie wybór strategii scancode/Unicode.
@@ -116,7 +116,7 @@ Layout-independence wymaga poznania **zamierzonego znaku**. Są dwie drogi:
 
 ### Naprawa ścieżki Unicode — uzupełnienie 2026-09-17
 
-**Status tej grupy: Approved (2026-09-17, właściciel).** Doprecyzowuje F-003a.4, F-003a.5
+**Status tej grupy: Implemented (2026-09-18)** (Approved 2026-09-17, właściciel). Doprecyzowuje F-003a.4, F-003a.5
 i F-003a.11. Ich treść zostaje bez zmian; wymagania poniżej opisują, jak
 konkretnie mają być spełnione.
 
@@ -267,3 +267,8 @@ ADR-0008 (strategia scancode/Unicode) przed kodem.
 właściciel), osobno i przed ADR-0008, bo naprawiają błąd widoczny dziś
 (`02-ms-rdpbcgr.md` §4 P-05) i nie przesądzają strategii. Grupa jest częścią
 Fali 3 (`waves.md`).
+
+**Implemented (2026-09-18):** F-003a.14–F-003a.18 (commity `fe3e66d`,
+`8828b38`, `f4978d8`). Testy jednostkowe z ID w nazwie:
+`input::unicode::tests::f003a_*`, `input::cgevent::tests::f003a_*`. Czeka na
+test ręczny właściciela (AC-10, BRAMKA B z `goals.md`) → Verified.
