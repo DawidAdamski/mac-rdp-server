@@ -272,3 +272,11 @@ Fali 3 (`waves.md`).
 `8828b38`, `f4978d8`). Testy jednostkowe z ID w nazwie:
 `input::unicode::tests::f003a_*`, `input::cgevent::tests::f003a_*`. Czeka na
 test ręczny właściciela (AC-10, BRAMKA B z `goals.md`) → Verified.
+
+**Test ręczny 2026-09-18** (właściciel; mstsc, Windows 11 build 26100):
+- **AC-10 — NIE PRZESZŁO.** Emoji wybrane z panelu Win+. (tryb okienkowy,
+  panel otwiera się lokalnie na Windows) nie pojawia się na Macu. W logu brak
+  wpisów o odrzuconych surogatach, ale ścieżka Unicode nie loguje odebranych
+  zdarzeń, więc nie wiadomo, czy mstsc cokolwiek wysłał. Obie strony
+  deklarują `InputFlags::UNICODE` (Confirm Active). Przyczyna do ustalenia
+  przed Verified.

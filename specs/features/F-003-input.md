@@ -292,3 +292,24 @@ z MS-RDPBCGR).
 `input::cgevent::tests::f003_2*`, `input::tests::f003_24_*`,
 `session::input::tests::f003_24_*`. Czeka na test ręczny właściciela
 (AC-11…AC-15, BRAMKA B z `goals.md`) → Verified.
+
+**Test ręczny 2026-09-18** (właściciel; mstsc, Windows 11 build 26100; logi
+`target/measure-mstsc-3.log`, `target/measure-mstsc-4.log`, lokalne):
+- **AC-11** — CI zielone (fmt, clippy `-D warnings`, 151 testów).
+- **AC-12** — działa w trybie okienkowym: po powrocie Alt+Tab pisanie bez
+  wiszących modyfikatorów. Każdy powrót daje w logu
+  `input state reset, nothing held cause="sync"` (trace) — mstsc sam wysyła
+  zwolnienie Alt przed oddaniem fokusu, więc serwer nie ma czego zwalniać.
+  W trybie pełnoekranowym Alt+Tab trafia do Maca jako Option+Tab i nie
+  przełącza okien Windows — to ustawienie mstsc („Apply Windows key
+  combinations”), nie błąd serwera.
+- **AC-13** — działa i jest potwierdzone logiem (08:50:46Z):
+  `input state reset cause="disconnect" modifiers=1 buttons=0` po zamknięciu
+  mstsc z wciśniętym Win (Cmd). Lokalna klawiatura i ponowne połączenie bez
+  skrótów.
+- **AC-14** — okno puszczone; w logu brak `buttons=1`, bo w trakcie
+  przeciągania nie da się kliknąć zamknięcia mstsc (przycisk puszczony przed
+  rozłączeniem). Ścieżkę zwalniania przycisku pokrywają tylko testy jednostkowe.
+- **AC-15** — Win+Tab (= Cmd+Tab) przełącza aplikacje na Macu; Caps Lock
+  zgodny z klientem po zmianie fokusu.
+- Poza zakresem, zaobserwowane: schowek między maszynami nie działa — F-102.
