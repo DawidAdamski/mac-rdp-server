@@ -22,6 +22,7 @@ use tracing::{debug, info, trace, warn};
 
 use super::keymap::{self, MappedKey};
 use super::state::{self, Buttons, Modifiers, MoveKind, ResetAction, ResetCause, ScreenGeometry};
+use super::unicode::SurrogateAssembler;
 use super::{InputSink, KeyEvent, MouseButton, PointerEvent};
 use crate::perms::{self, Permission, PermissionState};
 
@@ -36,6 +37,8 @@ pub struct CgEventSink {
     /// location, and the client sends moves and clicks separately.
     cursor: CGPoint,
     dropped: u64,
+    /// Pending halves of UTF-16 surrogate pairs (F-003a.14).
+    surrogates: SurrogateAssembler,
 }
 
 impl CgEventSink {
@@ -66,6 +69,7 @@ impl CgEventSink {
             buttons: Buttons::default(),
             cursor: CGPoint::new(geometry.origin_x, geometry.origin_y),
             dropped: 0,
+            surrogates: SurrogateAssembler::default(),
         })
     }
 
@@ -147,6 +151,16 @@ impl CgEventSink {
     }
 
     fn handle_key(&mut self, source: &CGEventSource, event: KeyEvent) {
+        // A scancode between the two halves of a pair leaves the first half
+        // lone (F-003a.15); the scancode itself goes through normally.
+        if let KeyEvent::Scancode { pressed, .. } = event
+            && let Some(unit) = self.surrogates.interrupt(pressed)
+        {
+            debug!(
+                unit = format_args!("{unit:#06X}"),
+                pressed, "lone UTF-16 surrogate dropped"
+            );
+        }
         match event {
             KeyEvent::Scancode {
                 code,
@@ -165,11 +179,20 @@ impl CgEventSink {
             },
             KeyEvent::Unicode { ch, pressed } => {
                 // Fallback for characters with no scancode mapping (F-003.14).
-                if let Ok(ev) = CGEvent::new_keyboard_event(source.clone(), 0, pressed) {
-                    if let Some(c) = char::from_u32(u32::from(ch)) {
-                        ev.set_string(&c.to_string());
-                    }
-                    self.post(&ev);
+                // Only a complete character is injected: a lone surrogate must
+                // never become a bare keycode-0 event (F-003a.15).
+                let step = self.surrogates.push(ch, pressed);
+                if let Some(unit) = step.dropped {
+                    debug!(
+                        unit = format_args!("{unit:#06X}"),
+                        pressed, "lone UTF-16 surrogate dropped"
+                    );
+                }
+                if let Some(c) = step.emit
+                    && let Some(ev) = build_unicode_event(source, c, pressed)
+                {
+                    // Not `self.post`: the flags stay cleared (F-003a.16).
+                    ev.post(CGEventTapLocation::HID);
                 }
             }
             KeyEvent::SyncLocks { caps, .. } => {
@@ -186,6 +209,14 @@ impl CgEventSink {
     /// is posted, so a modifier's release carries the flags without it.
     /// `source` is `None` without Accessibility: the state is still reset.
     fn reset(&mut self, source: Option<&CGEventSource>, cause: ResetCause) {
+        let lone = self.surrogates.reset();
+        if lone > 0 {
+            debug!(
+                lone,
+                cause = cause.label(),
+                "pending UTF-16 surrogates dropped on reset"
+            );
+        }
         let actions = state::plan_reset(self.modifiers, self.buttons, cause);
         for &action in &actions {
             state::apply(&mut self.modifiers, &mut self.buttons, action);
@@ -292,6 +323,20 @@ impl InputSink for CgEventSink {
     }
 }
 
+/// Builds the keyboard event for a character typed through the Unicode path.
+///
+/// Its modifier flags are **cleared** (F-003a.16): the character is already the
+/// final one, so a held Cmd from an earlier scancode must not turn it into a
+/// shortcut. The sink's modifier state is not touched, so the next scancode
+/// event still carries Cmd.
+fn build_unicode_event(source: &CGEventSource, c: char, pressed: bool) -> Option<CGEvent> {
+    let ev = CGEvent::new_keyboard_event(source.clone(), 0, pressed).ok()?;
+    let mut units = [0u16; 2];
+    ev.set_string_from_utf16_unchecked(c.encode_utf16(&mut units));
+    ev.set_flags(CGEventFlags::empty());
+    Some(ev)
+}
+
 /// The `(CGEventType, CGMouseButton)` for a button press or release.
 ///
 /// NOTE: the `Middle` arm is correct but currently unreachable end-to-end —
@@ -382,6 +427,7 @@ mod tests {
             buttons: Buttons::default(),
             cursor,
             dropped: 0,
+            surrogates: SurrogateAssembler::default(),
         }
     }
 
@@ -490,5 +536,31 @@ mod tests {
 
         assert_eq!(sink.flags().bits(), flag::ALPHA_SHIFT, "Cmd released, Caps Lock set");
         assert_eq!(sink.buttons.move_kind(), MoveKind::Move);
+    }
+
+    /// F-003a.16 (AC-9): a Unicode event while Cmd is held has flags 0, and
+    /// the next scancode event still gets Cmd.
+    #[test]
+    fn f003a_16_unicode_events_carry_no_modifier_flags() {
+        let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
+            return; // No windowing environment; see the middle-button test.
+        };
+        let mut sink = sink_at(ScreenGeometry::new(0.0, 0.0, 1.0), CGPoint::new(0.0, 0.0));
+        sink.modifiers.set(keymap::Modifier::CommandLeft, true);
+
+        let ev = build_unicode_event(&source, '\u{1F600}', true).expect("build unicode event");
+        assert!(ev.get_flags().is_empty(), "Unicode must not carry Cmd");
+        assert_eq!(ev.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE), 0);
+
+        assert_eq!(sink.flags().bits(), flag::COMMAND, "Cmd is still held for scancodes");
+    }
+
+    /// F-003a.17: the surrogate buffer is cleared by a Synchronize reset.
+    #[test]
+    fn f003a_17_sync_reset_clears_pending_surrogates() {
+        let mut sink = sink_at(ScreenGeometry::new(0.0, 0.0, 1.0), CGPoint::new(0.0, 0.0));
+        sink.surrogates.push(0xD83D, true);
+        sink.reset(None, ResetCause::Sync { caps_lock: false });
+        assert_eq!(sink.surrogates.push(0xDE00, true).emit, None, "no pair across a reset");
     }
 }
