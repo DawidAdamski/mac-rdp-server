@@ -18,10 +18,10 @@ use core_graphics::event::{
 };
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::geometry::CGPoint;
-use tracing::{info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use super::keymap::{self, MappedKey};
-use super::state::{Buttons, Modifiers, MoveKind, ScreenGeometry};
+use super::state::{self, Buttons, Modifiers, MoveKind, ResetAction, ResetCause, ScreenGeometry};
 use super::{InputSink, KeyEvent, MouseButton, PointerEvent};
 use crate::perms::{self, Permission, PermissionState};
 
@@ -173,8 +173,46 @@ impl CgEventSink {
                 }
             }
             KeyEvent::SyncLocks { caps, .. } => {
-                self.modifiers.set_caps_lock(caps);
+                self.reset(Some(source), ResetCause::Sync { caps_lock: caps });
             }
+        }
+    }
+
+    /// Releases every held modifier and button with real events, then applies
+    /// the toggle keys of a Synchronize (F-003.22, F-003.24).
+    ///
+    /// What to release is decided by [`state::plan_reset`] (F-003.25); this
+    /// only injects it. Each action is applied to the state *before* its event
+    /// is posted, so a modifier's release carries the flags without it.
+    /// `source` is `None` without Accessibility: the state is still reset.
+    fn reset(&mut self, source: Option<&CGEventSource>, cause: ResetCause) {
+        let actions = state::plan_reset(self.modifiers, self.buttons, cause);
+        for &action in &actions {
+            state::apply(&mut self.modifiers, &mut self.buttons, action);
+            let Some(source) = source else { continue };
+            match action {
+                ResetAction::ReleaseModifier(modifier) => {
+                    if let Some(keycode) = keymap::modifier_keycode(modifier)
+                        && let Ok(ev) = CGEvent::new_keyboard_event(source.clone(), keycode, false)
+                    {
+                        ev.set_type(CGEventType::FlagsChanged);
+                        self.post(&ev);
+                    }
+                }
+                ResetAction::ReleaseButton(button) => {
+                    if let Some(ev) = self.build_button_event(source, button, false) {
+                        self.post(&ev);
+                    }
+                }
+                ResetAction::SetCapsLock(_) => {}
+            }
+        }
+        // F-003.26: one line per reset, quiet when there was nothing to release.
+        let (modifiers, buttons) = state::released_counts(&actions);
+        if modifiers + buttons > 0 {
+            debug!(cause = cause.label(), modifiers, buttons, "input state reset");
+        } else {
+            trace!(cause = cause.label(), "input state reset, nothing held");
         }
     }
 
@@ -410,5 +448,47 @@ mod tests {
             .build_button_event(&source, MouseButton::Middle, false)
             .expect("build middle-button release");
         assert_eq!(up.get_type() as u32, CGEventType::OtherMouseUp as u32);
+    }
+
+    /// F-003.22: modifier releases are posted with the real modifier key codes,
+    /// so they must match `core-graphics`; Caps Lock is never "held".
+    #[test]
+    fn f003_22_modifier_release_key_codes_match_core_graphics() {
+        use keymap::Modifier;
+        assert_eq!(keymap::modifier_keycode(Modifier::ShiftLeft), Some(KeyCode::SHIFT));
+        assert_eq!(
+            keymap::modifier_keycode(Modifier::ShiftRight),
+            Some(KeyCode::RIGHT_SHIFT)
+        );
+        assert_eq!(keymap::modifier_keycode(Modifier::ControlLeft), Some(KeyCode::CONTROL));
+        assert_eq!(
+            keymap::modifier_keycode(Modifier::ControlRight),
+            Some(KeyCode::RIGHT_CONTROL)
+        );
+        assert_eq!(keymap::modifier_keycode(Modifier::AltLeft), Some(KeyCode::OPTION));
+        assert_eq!(
+            keymap::modifier_keycode(Modifier::AltRight),
+            Some(KeyCode::RIGHT_OPTION)
+        );
+        assert_eq!(keymap::modifier_keycode(Modifier::CommandLeft), Some(KeyCode::COMMAND));
+        assert_eq!(
+            keymap::modifier_keycode(Modifier::CommandRight),
+            Some(KeyCode::RIGHT_COMMAND)
+        );
+        assert_eq!(keymap::modifier_keycode(Modifier::CapsLock), None);
+    }
+
+    /// F-003.22: a Synchronize clears held state even when nothing can be
+    /// injected, so the next connection starts from "all up".
+    #[test]
+    fn f003_22_sync_resets_the_sink_state() {
+        let mut sink = sink_at(ScreenGeometry::new(0.0, 0.0, 1.0), CGPoint::new(0.0, 0.0));
+        sink.modifiers.set(keymap::Modifier::CommandLeft, true);
+        sink.buttons.set(MouseButton::Left, true);
+
+        sink.reset(None, ResetCause::Sync { caps_lock: true });
+
+        assert_eq!(sink.flags().bits(), flag::ALPHA_SHIFT, "Cmd released, Caps Lock set");
+        assert_eq!(sink.buttons.move_kind(), MoveKind::Move);
     }
 }

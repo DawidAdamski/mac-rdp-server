@@ -143,6 +143,33 @@ mod vk {
     pub const F10: MacKeyCode = 0x6D;
     pub const F11: MacKeyCode = 0x67;
     pub const F12: MacKeyCode = 0x6F;
+    // Modifiers. Only needed to *release* a held modifier (F-003.22): pressing
+    // one is modelled purely through `CGEventFlags` on later events.
+    pub const COMMAND: MacKeyCode = 0x37;
+    pub const SHIFT: MacKeyCode = 0x38;
+    pub const OPTION: MacKeyCode = 0x3A;
+    pub const CONTROL: MacKeyCode = 0x3B;
+    pub const RIGHT_COMMAND: MacKeyCode = 0x36;
+    pub const RIGHT_SHIFT: MacKeyCode = 0x3C;
+    pub const RIGHT_OPTION: MacKeyCode = 0x3D;
+    pub const RIGHT_CONTROL: MacKeyCode = 0x3E;
+}
+
+/// The Mac virtual key code of a modifier key, for posting its release
+/// (F-003.22). `None` for Caps Lock, which is a toggle and is never "held".
+#[must_use]
+pub fn modifier_keycode(modifier: Modifier) -> Option<MacKeyCode> {
+    match modifier {
+        Modifier::ShiftLeft => Some(vk::SHIFT),
+        Modifier::ShiftRight => Some(vk::RIGHT_SHIFT),
+        Modifier::ControlLeft => Some(vk::CONTROL),
+        Modifier::ControlRight => Some(vk::RIGHT_CONTROL),
+        Modifier::AltLeft => Some(vk::OPTION),
+        Modifier::AltRight => Some(vk::RIGHT_OPTION),
+        Modifier::CommandLeft => Some(vk::COMMAND),
+        Modifier::CommandRight => Some(vk::RIGHT_COMMAND),
+        Modifier::CapsLock => None,
+    }
 }
 
 use Modifier::*;
