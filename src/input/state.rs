@@ -64,6 +64,25 @@ impl Modifiers {
         self.caps_lock = on;
     }
 
+    /// The modifier keys currently held, left before right. Caps Lock is a
+    /// toggle rather than a held key, so it is never listed (F-003.22).
+    #[must_use]
+    pub fn held(self) -> Vec<Modifier> {
+        [
+            (self.shift_left, Modifier::ShiftLeft),
+            (self.shift_right, Modifier::ShiftRight),
+            (self.control_left, Modifier::ControlLeft),
+            (self.control_right, Modifier::ControlRight),
+            (self.alt_left, Modifier::AltLeft),
+            (self.alt_right, Modifier::AltRight),
+            (self.command_left, Modifier::CommandLeft),
+            (self.command_right, Modifier::CommandRight),
+        ]
+        .into_iter()
+        .filter_map(|(held, modifier)| held.then_some(modifier))
+        .collect()
+    }
+
     /// The `CGEventFlags` bits for the current state, to stamp on every event.
     #[must_use]
     pub fn cg_flags(self) -> u64 {
@@ -88,11 +107,17 @@ impl Modifiers {
 }
 
 /// Which mouse buttons are currently held, so a move becomes a drag (F-003.8).
+///
+/// Every button is tracked on its own, not only "some other button": a reset
+/// has to release exactly the buttons that are down (F-003.22), and releasing
+/// Back must not forget that Middle is still held.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Buttons {
     left: bool,
     right: bool,
-    other: bool,
+    middle: bool,
+    back: bool,
+    forward: bool,
 }
 
 impl Buttons {
@@ -100,8 +125,25 @@ impl Buttons {
         match button {
             MouseButton::Left => self.left = pressed,
             MouseButton::Right => self.right = pressed,
-            MouseButton::Middle | MouseButton::Back | MouseButton::Forward => self.other = pressed,
+            MouseButton::Middle => self.middle = pressed,
+            MouseButton::Back => self.back = pressed,
+            MouseButton::Forward => self.forward = pressed,
         }
+    }
+
+    /// The buttons currently held, in a fixed order (F-003.22).
+    #[must_use]
+    pub fn held(self) -> Vec<MouseButton> {
+        [
+            (self.left, MouseButton::Left),
+            (self.right, MouseButton::Right),
+            (self.middle, MouseButton::Middle),
+            (self.back, MouseButton::Back),
+            (self.forward, MouseButton::Forward),
+        ]
+        .into_iter()
+        .filter_map(|(held, button)| held.then_some(button))
+        .collect()
     }
 
     /// Which kind of move event a bare pointer move should become, given what
@@ -113,7 +155,7 @@ impl Buttons {
             MoveKind::LeftDrag
         } else if self.right {
             MoveKind::RightDrag
-        } else if self.other {
+        } else if self.middle || self.back || self.forward {
             MoveKind::OtherDrag
         } else {
             MoveKind::Move
@@ -128,6 +170,74 @@ pub enum MoveKind {
     LeftDrag,
     RightDrag,
     OtherDrag,
+}
+
+/// Why the input state is being reset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResetCause {
+    /// The client sent a Synchronize event (MS-RDPBCGR 2.2.8.1.1.3.1.1.5): it
+    /// resets the server's key state to "all up" and sets the toggle keys.
+    Sync { caps_lock: bool },
+    /// The RDP connection ended, cleanly or not (F-003.24). Toggle keys are
+    /// left alone: nobody told us their state changed.
+    SessionEnded,
+}
+
+impl ResetCause {
+    /// Short name for the log line (F-003.26).
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Sync { .. } => "sync",
+            Self::SessionEnded => "disconnect",
+        }
+    }
+}
+
+/// One step of a reset, in the order it has to be injected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResetAction {
+    ReleaseModifier(Modifier),
+    ReleaseButton(MouseButton),
+    SetCapsLock(bool),
+}
+
+/// Decides what a reset has to do, without doing it (F-003.25).
+///
+/// Every held modifier and button is released, and only **then** is Caps Lock
+/// set from the Synchronize event (F-003.22) — releases carry the flags of the
+/// state they leave behind, so they must not already see the new lock state.
+/// `cgevent` turns each action into a real event; [`apply`] replays them on the
+/// state.
+#[must_use]
+pub fn plan_reset(modifiers: Modifiers, buttons: Buttons, cause: ResetCause) -> Vec<ResetAction> {
+    let mut actions: Vec<ResetAction> = modifiers.held().into_iter().map(ResetAction::ReleaseModifier).collect();
+    actions.extend(buttons.held().into_iter().map(ResetAction::ReleaseButton));
+    if let ResetCause::Sync { caps_lock } = cause {
+        actions.push(ResetAction::SetCapsLock(caps_lock));
+    }
+    actions
+}
+
+/// Applies one reset action to the state.
+pub fn apply(modifiers: &mut Modifiers, buttons: &mut Buttons, action: ResetAction) {
+    match action {
+        ResetAction::ReleaseModifier(modifier) => {
+            modifiers.set(modifier, false);
+        }
+        ResetAction::ReleaseButton(button) => buttons.set(button, false),
+        ResetAction::SetCapsLock(on) => modifiers.set_caps_lock(on),
+    }
+}
+
+/// How many modifiers and buttons a plan releases, for the log (F-003.26).
+#[must_use]
+pub fn released_counts(actions: &[ResetAction]) -> (usize, usize) {
+    actions.iter().fold((0, 0), |(mods, buttons), action| match action {
+        ResetAction::ReleaseModifier(_) => (mods + 1, buttons),
+        ResetAction::ReleaseButton(_) => (mods, buttons + 1),
+        ResetAction::SetCapsLock(_) => (mods, buttons),
+    })
 }
 
 /// Geometry of the captured display, for turning RDP desktop pixels into the
@@ -313,5 +423,126 @@ mod tests {
     fn zero_scale_is_treated_as_one() {
         let geom = ScreenGeometry::new(0.0, 0.0, 0.0);
         assert_eq!(geom.pixel_to_point(10, 10), (10.0, 10.0));
+    }
+
+    fn replay(mut modifiers: Modifiers, mut buttons: Buttons, actions: &[ResetAction]) -> (Modifiers, Buttons) {
+        for &action in actions {
+            apply(&mut modifiers, &mut buttons, action);
+        }
+        (modifiers, buttons)
+    }
+
+    /// F-003.22, F-003.25 (AC-11): everything held is released, exactly once.
+    #[test]
+    fn f003_22_sync_releases_every_held_modifier_and_button() {
+        let mut modifiers = Modifiers::default();
+        modifiers.set(Modifier::ShiftLeft, true);
+        modifiers.set(Modifier::CommandRight, true);
+        let mut buttons = Buttons::default();
+        buttons.set(MouseButton::Left, true);
+
+        let plan = plan_reset(modifiers, buttons, ResetCause::Sync { caps_lock: false });
+        assert_eq!(
+            plan,
+            vec![
+                ResetAction::ReleaseModifier(Modifier::ShiftLeft),
+                ResetAction::ReleaseModifier(Modifier::CommandRight),
+                ResetAction::ReleaseButton(MouseButton::Left),
+                ResetAction::SetCapsLock(false),
+            ]
+        );
+
+        let (modifiers, buttons) = replay(modifiers, buttons, &plan);
+        assert_eq!(modifiers.cg_flags(), 0, "no modifier may survive the reset");
+        assert_eq!(
+            buttons.move_kind(),
+            MoveKind::Move,
+            "a move after the reset is not a drag"
+        );
+    }
+
+    /// F-003.25 (AC-11): nothing held, nothing to release.
+    #[test]
+    fn f003_25_reset_of_an_idle_state_releases_nothing() {
+        let plan = plan_reset(Modifiers::default(), Buttons::default(), ResetCause::SessionEnded);
+        assert!(plan.is_empty());
+    }
+
+    /// F-003.22 (AC-11): releases come before the toggle keys are set.
+    #[test]
+    fn f003_22_releases_precede_the_caps_lock_update() {
+        let mut modifiers = Modifiers::default();
+        modifiers.set(Modifier::ControlLeft, true);
+        let plan = plan_reset(modifiers, Buttons::default(), ResetCause::Sync { caps_lock: true });
+
+        assert_eq!(
+            plan.last(),
+            Some(&ResetAction::SetCapsLock(true)),
+            "the lock is set last"
+        );
+        let (modifiers, _) = replay(modifiers, Buttons::default(), &plan);
+        assert_eq!(
+            modifiers.cg_flags(),
+            flag::ALPHA_SHIFT,
+            "Caps Lock on, Control released"
+        );
+    }
+
+    /// F-003.24 (AC-11): a disconnect releases keys but leaves Caps Lock alone.
+    #[test]
+    fn f003_24_disconnect_does_not_touch_caps_lock() {
+        let mut modifiers = Modifiers::default();
+        modifiers.set_caps_lock(true);
+        modifiers.set(Modifier::CommandLeft, true);
+        let mut buttons = Buttons::default();
+        buttons.set(MouseButton::Right, true);
+
+        let plan = plan_reset(modifiers, buttons, ResetCause::SessionEnded);
+        assert!(!plan.iter().any(|a| matches!(a, ResetAction::SetCapsLock(_))));
+
+        let (modifiers, buttons) = replay(modifiers, buttons, &plan);
+        assert_eq!(modifiers.cg_flags(), flag::ALPHA_SHIFT, "Cmd released, Caps Lock kept");
+        assert!(buttons.held().is_empty());
+    }
+
+    /// F-003.23 (AC-11): a key re-sent by the client after the reset counts.
+    #[test]
+    fn f003_23_a_press_after_the_reset_is_held_again() {
+        let mut modifiers = Modifiers::default();
+        modifiers.set(Modifier::ShiftLeft, true);
+        let plan = plan_reset(modifiers, Buttons::default(), ResetCause::Sync { caps_lock: false });
+        let (mut modifiers, _) = replay(modifiers, Buttons::default(), &plan);
+
+        assert!(
+            modifiers.set(Modifier::ShiftLeft, true),
+            "the re-sent press must register"
+        );
+        assert_eq!(modifiers.cg_flags(), flag::SHIFT);
+    }
+
+    /// F-003.22: each extra button is released on its own, so one release
+    /// cannot hide another button that is still down.
+    #[test]
+    fn f003_22_other_buttons_are_tracked_individually() {
+        let mut buttons = Buttons::default();
+        buttons.set(MouseButton::Middle, true);
+        buttons.set(MouseButton::Back, true);
+        buttons.set(MouseButton::Back, false);
+        assert_eq!(buttons.held(), vec![MouseButton::Middle]);
+        assert_eq!(buttons.move_kind(), MoveKind::OtherDrag, "Middle still drags");
+    }
+
+    /// F-003.26: the log line counts what was released.
+    #[test]
+    fn f003_26_released_counts_split_modifiers_and_buttons() {
+        let actions = [
+            ResetAction::ReleaseModifier(Modifier::ShiftLeft),
+            ResetAction::ReleaseModifier(Modifier::AltRight),
+            ResetAction::ReleaseButton(MouseButton::Left),
+            ResetAction::SetCapsLock(true),
+        ];
+        assert_eq!(released_counts(&actions), (2, 1));
+        assert_eq!(ResetCause::Sync { caps_lock: true }.label(), "sync");
+        assert_eq!(ResetCause::SessionEnded.label(), "disconnect");
     }
 }
