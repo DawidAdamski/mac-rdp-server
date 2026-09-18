@@ -231,7 +231,11 @@ Część czysta — testy jednostkowe. Część macOS — **checklista ręczna**
    - znak z BMP `↓0105` ⇒ jedno wciśnięcie `ą`, bez buforowania (F-003a.14);
    - decyzja o flagach: zdarzenie Unicode przy trzymanym Cmd ma flagi = 0,
      a następne zdarzenie scancode ma Cmd (F-003a.16).
-10. **AC-10** Checklista ręczna:
+10. **AC-10** Checklista ręczna. Wykonuje się ją klientem, który wysyła
+    zdarzenia Unicode: FreeRDP z `/kbd:unicode:on` (na innej maszynie niż
+    serwer) albo Windows App w trybie klawiatury Unicode. mstsc nie wysyła
+    emoji z panelu Win+. (§8, 2026-09-18) — dla niego to ograniczenie klienta.
+    Zmiana zatwierdzona przez właściciela 2026-09-18.
     - emoji wpisane z klienta (np. z panelu emoji Windows, Win+.) pojawia się
       w edytorze na Macu jako **jeden** znak, bez dodatkowych liter „a”;
     - to samo z wciśniętym i puszczonym wcześniej Cmd: żaden skrót się nie
@@ -323,7 +327,7 @@ udała: `sdl-freerdp` nie utworzył potoku z opcji `/kbd:pipe`. Wstrzyknięcie d
 jego okna, gdy jest aktywne, dałoby pętlę (serwer wstrzykuje do aktywnej
 aplikacji), więc próbę przerwano.
 
-**Propozycja zmiany AC-10 — Draft (2026-09-18), czeka na właściciela.**
+**Zmiana AC-10 — Approved (2026-09-18, właściciel), wpisana w §5.**
 AC-10 w obecnej postaci jest niewykonalne z mstsc, bo mstsc nie wysyła emoji
 z panelu Win+. jako zdarzeń Unicode. Zmiana polega na tym, że AC-10 wykonuje
 się klientem, który wysyła zdarzenia Unicode, np.:
