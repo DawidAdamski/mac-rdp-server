@@ -115,3 +115,4 @@ F-004 §8 pkt 6 i Fala 3 idzie dalej do F-005.
 |---|---|---|---|
 | G1 | 2026-09-17 | 2026-09-17 | Commit `0e39064`; specy Approved przez właściciela 2026-09-17 (ADR-0011, ADR-0013 nadal Proposed) |
 | G2 | 2026-09-18 | 2026-09-18 | Commity `5e57e3e`…`f4978d8`; BRAMKA B 2026-09-18: F-003.22–26 Verified; F-003a.14–18 Implemented, AC-10 odłożone (mstsc nie wysyła Unicode, F-003a §8); właściciel: kontynuować G3 |
+| G3 | 2026-09-18 | 2026-09-18 | F-008 Implemented; czeka BRAMKA C (AC-3…AC-9, w tym F-004 AC-5) |

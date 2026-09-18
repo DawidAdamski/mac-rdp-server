@@ -1,7 +1,7 @@
 # F-008 — Suppress Output i Refresh Rect: przerwa w wysyłaniu i pełne odświeżenie
 
 - **Fala:** 3 (Jakość MVP) — poprawka zgodności z MS-RDPBCGR, przed F-005
-- **Status:** Approved (2026-09-17, właściciel)
+- **Status:** Implemented (2026-09-18) (Approved 2026-09-17, właściciel)
 - **Data:** 2026-09-17
 - **ADR:** ADR-0013 (rzeczywista ścieżka obrazu, Proposed), ADR-0009 (damage),
   ADR-0011 (fork IronRDP, Proposed — docelowe domknięcie znanej luki, §5)
@@ -259,8 +259,36 @@ zachowanie okna klienta i macOS-a nie daje się sprawdzić bez GUI.
 
 ## 6. Status
 
-**Approved** (2026-09-17, właściciel). Implementacja F-008.3 i kolejnych
-czeka na pomiar D-2 (AC-2), zgodnie z F-008.1.
+**Implemented (2026-09-18)** (Approved 2026-09-17, właściciel). D-2 (AC-2)
+wykonany przed kodem, zgodnie z F-008.1 — wyniki w tabeli niżej.
+
+Implementacja (commity `6154272`, `4358e96`, `afdc980`):
+- `src/session/suppress.rs` — `SuppressTracker` (F-008.8, F-008.9), bez typów
+  IronRDP;
+- `src/session/display.rs` — odczyt flagi co ≤ 50 ms przez `tokio::select!`
+  ze snem (F-008.5), porzucanie klatek bez kodowania (F-008.4), pełne
+  odświeżenie przez `DisplayUpdate::Resize` z niezmienionym rozmiarem
+  (F-008.6, F-008.7); tracker przechodzi przez ponowną aktywację, więc odstęp
+  1 s obowiązuje także po niej; log `info` przejść (F-008.2);
+- `src/session/mod.rs` — jedna flaga `Arc<AtomicBool>` przekazana do
+  `with_display_suppressed_handle` i do `MacRdpDisplay` (F-008.3).
+
+Testy:
+- jednostkowe `session::suppress::tests::f008_*` (F-008.2, F-008.8, F-008.9,
+  F-008.11);
+- integracyjne `tests/suppress_output.rs` (F-008.12, powstał):
+  - klient IronRDP wysyła Suppress Output; przez 2 s zero aktualizacji
+    obrazu, mimo że wzorzec się zmienia;
+  - po wznowieniu klient dostaje Deactivate All, przechodzi ponowną aktywację
+    przy tym samym rozmiarze, a obraz odmalowany od czarnego zgadza się
+    piksel w piksel z klatką wzorca;
+  - oba enkodery (F-008.10);
+  - sprawdzone, że test pada przy wyłączonej przerwie.
+
+F-008.5 (≤ 100 ms) wynika z konstrukcji (sen 50 ms). Test integracyjny
+pokrywa to pośrednio: cisza zaczyna się w oknie karencji 300 ms.
+
+**Do weryfikacji ręcznej właściciela:** AC-3…AC-9.
 
 ### Wyniki pomiarów
 

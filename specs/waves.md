@@ -130,7 +130,7 @@ osobną, pełną iterację, nie „przy okazji".
 | F-005 | Kursor — `DisplayUpdate::{RGBAPointer, CachedPointer, DefaultPointer}` | **Draft** (2026-08-24) — czeka na approve; approve = zgoda na ADR-0010 |
 | **ADR-0013** (MS-RDPBCGR §6 pkt 1) | Pomiar D-1 + korekta opisu ścieżki obrazu z ADR-0006: Surface Bits `codecID = 0` zamiast RDP 6.0 (P-01) | **Proposed** (2026-09-17) — pomiar D-1 u właściciela; przed F-005 |
 | **F-003.22–F-003.26**, **F-003a.14–F-003a.18** (MS-RDPBCGR §6 pkt 2) | Input: Synchronize i koniec połączenia zwalniają trzymane klawisze i przyciski (P-04); surogaty UTF-16 i flagi zdarzeń Unicode (P-05) | F-003.22–26 **Verified** (2026-09-18); F-003a.14–18 i .19 **Implemented** — AC-10 czeka na klienta wysyłającego Unicode (FreeRDP / Windows App) |
-| **F-008** (MS-RDPBCGR §6 pkt 3) | Suppress Output / Refresh Rect (P-06): przerwa w wysyłaniu, pełne odświeżenie przez ponowną aktywację; kandydat na przyczynę Cmd+Tab z F-004 AC-5 | **Approved** (2026-09-17) — implementacja po pomiarze D-2 (G3); przed F-005 |
+| **F-008** (MS-RDPBCGR §6 pkt 3) | Suppress Output / Refresh Rect (P-06): przerwa w wysyłaniu, pełne odświeżenie przez ponowną aktywację; kandydat na przyczynę Cmd+Tab z F-004 AC-5 | **Implemented** (2026-09-18, G3) — czeka na test ręczny (BRAMKA C, AC-3…AC-9); przed F-005 |
 | F-006 | Resize sesji — `RdpServerDisplay::request_layout` + MS-RDPEDISP | Spec do napisania |
 | F-007 (iter. 2) | Przełączanie ekranów: F-007.4/.4a/.6/.6a/.7 | Odblokowane przez F-006 |
 
