@@ -8,6 +8,7 @@
 mod convert;
 mod display;
 mod input;
+mod suppress;
 
 use std::net::SocketAddr;
 use std::path::Path;
