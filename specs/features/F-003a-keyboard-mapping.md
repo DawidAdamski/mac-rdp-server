@@ -307,3 +307,29 @@ Wszystkie sześć wariantów dotarło:
 
 Strona Maca działa. Podejrzenie: mstsc nie wysyła emoji z panelu Win+.
 jako zdarzeń Unicode, co jest do potwierdzenia przez F-003a.19 (Draft).
+
+**Wynik F-003a.19, 2026-09-18** (`target/measure-mstsc-5.log`, lokalny).
+Test: mstsc na Windows 11 (build 26100), tryb okienkowy, Win+. i wybór 😀.
+- 190 odebranych zdarzeń klawiatury, w tym **0 zdarzeń Unicode**.
+- Win+. dochodzi jako scancode'y `0x5B` E0 (Win → Cmd) i `0x34` (`.`),
+  czyli na Macu jako Cmd+.; panel emoji otwiera się lokalnie na Windows.
+- Wybrane emoji **nie opuszcza klienta**. Serwer nie ma czego wstrzyknąć,
+  więc ścieżka F-003a.14–16 nie jest w tym teście w ogóle używana.
+- Przy powrocie fokusu mstsc wysyła Synchronize i zwolnienia Tab, Alt, Ctrl
+  i Shift. Zgadza się to z AC-12 w F-003: klient sam puszcza modyfikatory.
+
+Próba lokalnej reprodukcji przez FreeRDP 3.31.1 (`/kbd:unicode:on`) się nie
+udała: `sdl-freerdp` nie utworzył potoku z opcji `/kbd:pipe`. Wstrzyknięcie do
+jego okna, gdy jest aktywne, dałoby pętlę (serwer wstrzykuje do aktywnej
+aplikacji), więc próbę przerwano.
+
+**Propozycja zmiany AC-10 — Draft (2026-09-18), czeka na właściciela.**
+AC-10 w obecnej postaci jest niewykonalne z mstsc, bo mstsc nie wysyła emoji
+z panelu Win+. jako zdarzeń Unicode. Zmiana polega na tym, że AC-10 wykonuje
+się klientem, który wysyła zdarzenia Unicode, np.:
+- FreeRDP z `/kbd:unicode:on` na **innej** maszynie;
+- Windows App z trybem klawiatury Unicode.
+
+Dla mstsc AC-10 zostaje tylko jako obserwacja: panel Win+. nie działa, co
+jest ograniczeniem klienta, nie serwera.
+
