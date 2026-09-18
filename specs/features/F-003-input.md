@@ -5,7 +5,7 @@
 - **Data:** 2026-07-24
 - **ADR:** ADR-0003 (CGEvent), ADR-0001 (silnik), ADR-0007 (środkowy przycisk — ograniczenie IronRDP)
 - **Powiązane:** F-003a (mapowanie klawiatury — osobny spec, bo to najtrudniejsza część)
-- **Uzupełnienie 2026-09-17 (Implemented (2026-09-18); Approved 2026-09-17, właściciel):** F-003.22–F-003.26 — reset stanu wejścia
+- **Uzupełnienie 2026-09-17 (Verified (2026-09-18, właściciel)):** F-003.22–F-003.26 — reset stanu wejścia
   (Synchronize, koniec połączenia). Źródło: przegląd `02-ms-rdpbcgr.md` §4 P-04.
   Wymagania F-003.1–F-003.21 bez zmian.
 
@@ -121,7 +121,7 @@ tabela na kilkaset wpisów zależna od układu i zasługuje na własną iteracj�
 
 ### Reset stanu wejścia — uzupełnienie 2026-09-17
 
-**Status tej grupy: Implemented (2026-09-18)** (Approved 2026-09-17, właściciel). Pozostałe wymagania F-003 zachowują
+**Status tej grupy: Verified (2026-09-18, właściciel)** (Approved 2026-09-17, Implemented 2026-09-18). Pozostałe wymagania F-003 zachowują
 swój status.
 
 Kontekst. MS-RDPBCGR 2.2.8.1.1.3.1.1.5 (str. 173) definiuje Synchronize Event
@@ -313,3 +313,6 @@ z MS-RDPBCGR).
 - **AC-15** — Win+Tab (= Cmd+Tab) przełącza aplikacje na Macu; Caps Lock
   zgodny z klientem po zmianie fokusu.
 - Poza zakresem, zaobserwowane: schowek między maszynami nie działa — F-102.
+
+**Verified (2026-09-18, właściciel):** F-003.22–F-003.26 — AC-11…AC-15 spełnione
+(wyniki wyżej).
