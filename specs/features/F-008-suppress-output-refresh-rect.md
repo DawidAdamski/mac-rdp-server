@@ -330,3 +330,74 @@ Właściciel: wykonane wszystko poza punktami 5 i 6 checklisty (AC-7, AC-8).
   ~190 MB/s (5120×1440, pełne klatki „too many separate regions”). To temat
   ADR-0013 i F-104, nie F-008.
 
+### AC-5 — NIE PRZESZŁO (2026-09-24). Ścieżka zatrzymania z F-008.7
+
+Log właściciela, 2026-09-24 11:34:39 UTC, klient z kanałami DVC
+`FreeRDP::Advanced::Input`, `Microsoft::Windows::RDS::DisplayControl`, `ECHO`
+(czyli klient z rodziny FreeRDP — prawdopodobnie Windows App, nie mstsc),
+sesja trwała ~3,4 h, pulpit 5120×1440.
+
+Przebieg:
+
+```
+11:34:39.682914  client RefreshRectangle cleared suppress-output state
+11:34:39.684292  client resumed display updates paused_ms=58613 skipped_frames=1719
+11:34:39.684309  full refresh: reactivating at the same desktop size
+11:34:39.684404  End of client loop: DeactivationReactivation
+11:34:39.685043  ERROR Connection error: failed to accept client during finalize
+                 Caused by: [expected client confirm active
+                 @ ironrdp-acceptor-0.10.0/src/connection.rs:848]
+```
+
+Klient rozłączył się i wrócił po ~10 s (dwa podejścia, drugie udane).
+
+**Przyczyna (ustalona z kodu).** W `ironrdp-acceptor-0.10.0`
+`connection.rs:833-848`: w trakcie ponownej aktywacji akceptor **toleruje**
+PDU, którego nie umie zdekodować jako `ShareControlHeader` („Dropping
+unexpected PDU during reactivation”), ale PDU, które **zdekoduje się
+poprawnie** i nie jest `ClientConfirmActive`, kończy połączenie błędem
+`general("expected client confirm active")`. Każdy Share Data PDU w locie
+w chwili Deactivate All zabija więc sesję.
+
+To wyścig, nie determinizm — i dlatego 2026-09-18 się udało:
+- 09-18: klient wysłał Refresh Rect, **2,1 ms później** Suppress Output
+  `suppress=false`, a nasz `Resize` poszedł **15 ms po** obu; nic nie zostało
+  w locie i ponowna aktywacja przeszła (dwa razy).
+- 09-24: `Resize` poszedł **0,6 ms** po Refresh Rect, więc towarzyszące mu
+  Suppress Output trafiło już w stan reaktywacji → błąd.
+
+Nasz test integracyjny (F-008.12) tego nie łapie: klient IronRDP wysyła
+tylko jedno PDU wznowienia i czeka.
+
+**Zgodnie z F-008.7 implementacja zatrzymuje się tutaj.** Poniżej propozycja
+zmiany, do decyzji właściciela.
+
+### Propozycja zmiany F-008.7 — Draft (2026-09-24)
+
+Warianty, od najmniej do najbardziej ryzykownego:
+
+1. **(Rekomendowany) Pełne odświeżenie bez Deactivate All.** Po wznowieniu
+   unieważniamy **tylko bazę naszego enkodera** (nowa metoda `Encoder`, np.
+   `invalidate_baseline()`, czysta i testowalna) i kodujemy pełną klatkę.
+   Diff kafelkowy IronRDP odetnie kafelki, które klient już ma — a jego kopia
+   obrazu jest z definicji tym, co klientowi wysłano.
+   - Koniec z ponowną aktywacją, więc wyścig z `connection.rs:848` znika
+     w całości.
+   - Cena: jeśli klient **wyrzucił** swój obraz w trakcie przerwy, jego
+     nieruchome fragmenty zostaną nieodświeżone. Żaden z testowanych klientów
+     się tak nie zachował (obraz po przywróceniu był poprawny), ale gwarancji
+     z Appendix A <38> to nie daje.
+   - Znana luka wobec G-2 zostaje i idzie do forku (ADR-0011).
+2. **Ponowna aktywacja z opóźnieniem.** Zostawiamy `Resize`, ale dopiero
+   ~250 ms po wznowieniu, żeby PDU towarzyszące wznowieniu zostały
+   przetworzone. Zwęża wyścig, nie usuwa go; każde Share Data PDU od klienta
+   (np. kolejne Suppress Output) nadal może trafić w okno reaktywacji.
+3. **Poprawka w forku IronRDP (ADR-0011, Etap 1).** W akceptorze podczas
+   reaktywacji odrzucać także PDU, które zdekodowały się poprawnie, ale nie są
+   `ClientConfirmActive` — symetrycznie do gałęzi obok. Kandydat na PR
+   upstream. To jest właściwa naprawa, ale nie odblokowuje Fali 3 dziś.
+
+Do tego, niezależnie od wariantu: **test integracyjny musi odtwarzać wyścig**
+— klient wysyła Refresh Rect i natychmiast Suppress Output, bez czekania
+(rozszerzenie F-008.12).
+
