@@ -401,3 +401,11 @@ Do tego, niezależnie od wariantu: **test integracyjny musi odtwarzać wyścig**
 — klient wysyła Refresh Rect i natychmiast Suppress Output, bez czekania
 (rozszerzenie F-008.12).
 
+**Drugie wystąpienie (2026-09-24 11:38:44, ten sam klient, sesja 235 s).**
+Identyczny przebieg: `Display resize` → `DeactivationReactivation` → w ciągu
+**1 ms** `expected client confirm active`, rozłączenie, nieudana próba
+powrotu po 9 s i udana po 11 s. Razem 2026-09-24 padły **dwa z dwóch**
+zaobserwowanych wznowień. Wyścig jest więc dla tego klienta regułą, nie
+wyjątkiem, i wariant 2 (opóźnienie) tym bardziej nie wystarcza — rekomendacja
+przesuwa się jednoznacznie na wariant 1 (odświeżenie bez Deactivate All).
+
