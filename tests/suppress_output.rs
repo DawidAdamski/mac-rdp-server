@@ -2,9 +2,20 @@
 //!
 //! The client pauses display updates, and the server must go quiet even though
 //! the test pattern keeps changing (F-008.4). When the client resumes, the server
-//! must reactivate the session and repaint the **whole** desktop (F-008.6,
-//! F-008.7). The client starts that repaint from a black image, so an exact match
-//! with a rendered pattern frame proves nothing was left out.
+//! must repaint the **whole** desktop without a deactivation-reactivation
+//! (F-008.6, F-008.7v2). The check is that the client's image, stale after the
+//! pause, matches a rendered pattern frame **exactly** once the repaint has
+//! arrived: no fragment of the paused desktop may survive.
+//!
+//! What this cannot check — and F-008.7v2 records it as a deviation — is a client
+//! that throws its image away while paused. IronRDP diffs every bitmap against
+//! its own copy of what it sent and drops the tiles that match, so such a client
+//! would not get them back. Asserting a repaint onto a freshly black image fails
+//! for exactly that reason.
+//!
+//! The resume is sent the way real clients send it and the way that used to drop
+//! the session: Refresh Rect and Suppress Output back to back, with no wait in
+//! between (F-008 §6, 2026-09-24).
 //!
 //! The connection helpers are copied from `tests/rdp_pixels.rs`, which F-008.13
 //! does not allow us to change.
@@ -14,10 +25,7 @@ use std::io::Write as _;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 
-use ironrdp_connector::connection_activation::ConnectionActivationState;
-use ironrdp_connector::{
-    BitmapConfig, ClientConnector, ConnectionResult, Credentials, DesktopSize, Sequence as _, State as _,
-};
+use ironrdp_connector::{BitmapConfig, ClientConnector, ConnectionResult, Credentials, DesktopSize};
 use ironrdp_graphics::image_processing::PixelFormat;
 use ironrdp_pdu::WriteBuf;
 use ironrdp_pdu::gcc::KeyboardType;
@@ -25,6 +33,7 @@ use ironrdp_pdu::geometry::InclusiveRectangle;
 use ironrdp_pdu::rdp::capability_sets::{BitmapCodecs, MajorPlatformType};
 use ironrdp_pdu::rdp::client_info::{PerformanceFlags, TimezoneInfo};
 use ironrdp_pdu::rdp::headers::ShareDataPdu;
+use ironrdp_pdu::rdp::refresh_rectangle::RefreshRectanglePdu;
 use ironrdp_pdu::rdp::suppress_output::SuppressOutputPdu;
 use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{ActiveStage, ActiveStageBuilder, ActiveStageOutput};
@@ -49,7 +58,10 @@ const QUIET: Duration = Duration::from_millis(2_000);
 struct Observation {
     first_frame: bool,
     updates_while_paused: usize,
-    reactivated_size: Option<(u16, u16)>,
+    /// The session was deactivated — which is what must no longer happen.
+    deactivated: bool,
+    /// The pattern frame the client was left with while paused.
+    counter_before_resume: Option<u64>,
     repaint_matched: Option<u64>,
 }
 
@@ -133,6 +145,39 @@ fn set_read_timeout(framed: &mut Framed, timeout: Duration) {
         .expect("set read timeout");
 }
 
+/// Sends Refresh Rect immediately followed by Suppress Output
+/// `allowDisplayUpdates = 1`, in one write, exactly as the clients that dropped
+/// the session did (F-008.12, amendment of 2026-09-24).
+fn send_resume_burst(stage: &ActiveStage, framed: &mut Framed) {
+    let area = InclusiveRectangle {
+        left: 0,
+        top: 0,
+        right: u16::try_from(PATTERN_WIDTH - 1).expect("fits"),
+        bottom: u16::try_from(PATTERN_HEIGHT - 1).expect("fits"),
+    };
+    let mut buf = WriteBuf::new();
+    let refresh = stage
+        .encode_static(
+            &mut buf,
+            ShareDataPdu::RefreshRectangle(RefreshRectanglePdu {
+                areas_to_refresh: vec![area.clone()],
+            }),
+        )
+        .expect("encode Refresh Rect");
+    let mut burst = buf[..refresh].to_vec();
+    let mut buf = WriteBuf::new();
+    let suppress = stage
+        .encode_static(
+            &mut buf,
+            ShareDataPdu::SuppressOutput(SuppressOutputPdu {
+                desktop_rect: Some(area),
+            }),
+        )
+        .expect("encode Suppress Output");
+    burst.extend_from_slice(&buf[..suppress]);
+    framed.write_all(&burst).expect("send the resume burst");
+}
+
 fn send_suppress(stage: &ActiveStage, framed: &mut Framed, allow: bool) {
     let desktop_rect = allow.then(|| InclusiveRectangle {
         left: 0,
@@ -148,31 +193,6 @@ fn send_suppress(stage: &ActiveStage, framed: &mut Framed, allow: bool) {
         )
         .expect("encode Suppress Output");
     framed.write_all(&buf[..written]).expect("send Suppress Output");
-}
-
-/// Runs a Deactivation-Reactivation Sequence (MS-RDPBCGR 1.3.1.3) to the end,
-/// returning the new desktop size and share id.
-fn reactivate(result: &ConnectionResult, framed: &mut Framed) -> ((u16, u16), u32) {
-    let mut sequence = result.activation_factory.create();
-    let mut buf = WriteBuf::new();
-    while !sequence.state().is_terminal() {
-        buf.clear();
-        let written = if let Some(hint) = sequence.next_pdu_hint() {
-            let pdu = framed.read_by_hint(hint).expect("read reactivation PDU");
-            sequence.step(&pdu, &mut buf).expect("reactivation step")
-        } else {
-            sequence.step_no_input(&mut buf).expect("reactivation step")
-        };
-        if let Some(len) = written.size() {
-            framed.write_all(&buf[..len]).expect("send reactivation PDU");
-        }
-    }
-    match sequence.connection_activation_state() {
-        ConnectionActivationState::Finalized {
-            desktop_size, share_id, ..
-        } => ((desktop_size.width, desktop_size.height), share_id),
-        other => panic!("reactivation ended in {}", other.name()),
-    }
 }
 
 /// Reads and processes PDUs until `until` returns true or `limit` passes.
@@ -226,28 +246,34 @@ fn run_suppress_client(addr: SocketAddr) -> Observation {
     let (paused, _) = pump(&mut stage, &mut framed, &mut image, QUIET, |_, _| false);
     observation.updates_while_paused = paused;
 
-    // 3. Resume. The server must reactivate; the client repaints from black.
-    send_suppress(&stage, &mut framed, true);
-    let (_, deactivated) = pump(&mut stage, &mut framed, &mut image, OBSERVE, |out, _| {
-        matches!(out, ActiveStageOutput::DeactivateAll)
-    });
-    if !deactivated {
-        return observation;
-    }
-    let (reactivated_size, share_id) = reactivate(&result, &mut framed);
-    observation.reactivated_size = Some(reactivated_size);
-
-    let mut stage = build_stage(&result, share_id);
-    let mut repaint = DecodedImage::new(PixelFormat::RgbA32, reactivated_size.0, reactivated_size.1);
+    // 3. Resume, with the burst that used to kill the session. The image is
+    //    stale by now — several pattern ticks old — so an exact match means the
+    //    repaint really arrived.
+    let before = matching_counter(&image);
+    observation.counter_before_resume = before;
+    send_resume_burst(&stage, &mut framed);
     let mut matched = None;
-    pump(&mut stage, &mut framed, &mut repaint, OBSERVE, |out, image| {
-        if matches!(out, ActiveStageOutput::GraphicsUpdate(_)) {
-            matched = (0..=60).find(|counter| matches_pattern(image, *counter));
+    let mut deactivated = false;
+    pump(&mut stage, &mut framed, &mut image, OBSERVE, |out, image| {
+        match out {
+            ActiveStageOutput::GraphicsUpdate(_) => {
+                // A *newer* pattern frame: the picture the client was left
+                // with during the pause no longer counts.
+                matched = matching_counter(image).filter(|counter| Some(*counter) != before);
+            }
+            ActiveStageOutput::DeactivateAll => deactivated = true,
+            ActiveStageOutput::Terminate(_) => deactivated = true,
+            _ => {}
         }
-        matched.is_some()
+        matched.is_some() || deactivated
     });
+    observation.deactivated = deactivated;
     observation.repaint_matched = matched;
     observation
+}
+
+fn matching_counter(image: &DecodedImage) -> Option<u64> {
+    (0..=60).find(|counter| matches_pattern(image, *counter))
 }
 
 fn matches_pattern(image: &DecodedImage, counter: u64) -> bool {
@@ -278,21 +304,21 @@ fn check(observation: &Observation) {
         observation.updates_while_paused, 0,
         "F-008.4: the server kept sending while the client had paused updates"
     );
-    assert_eq!(
-        observation.reactivated_size,
-        Some((
-            u16::try_from(PATTERN_WIDTH).expect("fits"),
-            u16::try_from(PATTERN_HEIGHT).expect("fits")
-        )),
-        "F-008.7: resuming must reactivate the session at the unchanged desktop size"
+    assert!(
+        !observation.deactivated,
+        "F-008.7v2: resuming must not deactivate the session — that is what dropped real clients"
+    );
+    assert_ne!(
+        observation.repaint_matched, observation.counter_before_resume,
+        "the picture after the resume must be newer than the one left by the pause"
     );
     assert!(
         observation.repaint_matched.is_some(),
-        "F-008.6: after the reactivation the client, starting from black, never saw a complete pattern frame"
+        "F-008.6: after the resume the client's image never became a complete, current pattern frame"
     );
 }
 
-/// F-008.12, F-008.4, F-008.6, F-008.7 with the damage encoder.
+/// F-008.12, F-008.4, F-008.6, F-008.7v2 with the damage encoder.
 #[test]
 fn f008_12_suppress_output_pauses_and_resume_repaints_everything() {
     check(&run_server_with(EncoderKind::Damage, run_suppress_client));
