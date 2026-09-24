@@ -32,4 +32,12 @@ pub enum FrameUpdate {
 
 pub trait Encoder: Send {
     fn encode(&mut self, frame: Frame) -> Result<Vec<FrameUpdate>>;
+
+    /// Forgets what the client has already been sent, so the next frame is
+    /// encoded whole (F-008.7v2).
+    ///
+    /// Called when a client resumes after pausing display updates: what it
+    /// still holds cannot be relied upon. Default: nothing to do, for an
+    /// encoder that sends full frames anyway.
+    fn invalidate_baseline(&mut self) {}
 }

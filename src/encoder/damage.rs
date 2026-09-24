@@ -71,12 +71,14 @@ pub(crate) enum FullReason {
     WidthNotAligned,
     MostOfScreenChanged,
     TooManyRegions,
+    BaselineInvalidated,
 }
 
 impl FullReason {
     const fn as_str(self) -> &'static str {
         match self {
             Self::FirstFrame => "first frame of this connection",
+            Self::BaselineInvalidated => "baseline invalidated (client resumed)",
             Self::GeometryChanged => "frame geometry changed",
             Self::WidthNotAligned => "desktop width is not a multiple of 4",
             Self::MostOfScreenChanged => "most of the screen changed",
@@ -103,6 +105,9 @@ pub struct DamageEncoder {
     /// The frame this encoder last handed downstream — the baseline every
     /// comparison is made against (ADR-0009 §1).
     previous: Option<Frame>,
+    /// Set by [`Encoder::invalidate_baseline`]: the next frame goes out whole
+    /// and is labelled as such in the log (F-008.7v2).
+    invalidated: bool,
     stats: Stats,
     last_log: Instant,
 }
@@ -126,6 +131,7 @@ impl DamageEncoder {
             full_frame_ratio,
             max_regions,
             previous: None,
+            invalidated: false,
             stats: Stats::default(),
             last_log: Instant::now(),
         }
@@ -139,6 +145,9 @@ impl DamageEncoder {
         // this arm is unreachable. It exists so the encoder is total.
         if !frame.width.is_multiple_of(4) {
             return Some(FullReason::WidthNotAligned);
+        }
+        if self.invalidated {
+            return Some(FullReason::BaselineInvalidated);
         }
         match &self.previous {
             None => Some(FullReason::FirstFrame),
@@ -159,6 +168,7 @@ impl DamageEncoder {
         );
         self.stats.full_frames += 1;
         self.stats.bytes_sent += frame.data.len() as u64;
+        self.invalidated = false;
         self.previous = Some(frame.clone());
         vec![FrameUpdate::Full { frame }]
     }
@@ -261,6 +271,12 @@ impl Encoder for DamageEncoder {
         self.previous = Some(frame);
         self.maybe_log(now);
         Ok(updates)
+    }
+
+    /// F-008.7v2: forget the baseline, so the next frame goes out whole.
+    fn invalidate_baseline(&mut self) {
+        self.previous = None;
+        self.invalidated = true;
     }
 }
 
@@ -771,6 +787,52 @@ mod tests {
         assert!(
             is_full(&updates),
             "the bitmap encoder rejects such widths; main refuses this desktop at startup"
+        );
+    }
+
+    /// F-008.7v2: after invalidation the next frame is full again, even when
+    /// the screen has not changed at all — that is the point of a repaint on
+    /// resume.
+    #[test]
+    fn f008_7v2_invalidating_the_baseline_forces_a_full_frame() {
+        let mut encoder = DamageEncoder::new();
+        // Several tiles wide, so a one-pixel change stays a region.
+        let first = frame(256, 256, 0);
+        assert!(is_full(&encoder.encode(first.clone()).expect("first")), "first frame");
+
+        let mut second = first.clone();
+        put(&mut second, 4, 4, 0xFF);
+        assert!(
+            !is_full(&encoder.encode(second.clone()).expect("second")),
+            "a small change is a region"
+        );
+
+        encoder.invalidate_baseline();
+        assert!(
+            is_full(&encoder.encode(second.clone()).expect("after invalidation")),
+            "an unchanged frame must still be sent whole after invalidation"
+        );
+
+        let mut third = second.clone();
+        put(&mut third, 8, 8, 0xFF);
+        assert!(
+            !is_full(&encoder.encode(third).expect("third")),
+            "and afterwards the encoder is back to diffing"
+        );
+    }
+
+    /// F-008.7v2: invalidating twice costs one full frame, not two.
+    #[test]
+    fn f008_7v2_invalidation_is_consumed_by_the_next_frame() {
+        let mut encoder = DamageEncoder::new();
+        let first = frame(256, 256, 0);
+        encoder.encode(first.clone()).expect("first");
+        encoder.invalidate_baseline();
+        encoder.invalidate_baseline();
+        assert!(is_full(&encoder.encode(first.clone()).expect("full")), "one full frame");
+        assert!(
+            encoder.encode(first).expect("unchanged").is_empty(),
+            "an unchanged frame after that sends nothing"
         );
     }
 
