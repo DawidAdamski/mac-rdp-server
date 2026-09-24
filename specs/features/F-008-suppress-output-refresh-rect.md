@@ -439,3 +439,35 @@ zaobserwowanych wznowień. Wyścig jest więc dla tego klienta regułą, nie
 wyjątkiem, i wariant 2 (opóźnienie) tym bardziej nie wystarcza — rekomendacja
 przesuwa się jednoznacznie na wariant 1 (odświeżenie bez Deactivate All).
 
+### Implementacja F-008.7v2 (2026-09-24)
+
+Commity `9496d57` (enkoder) i `41f6dac` (pętla obrazu i test).
+
+- `Encoder::invalidate_baseline()` — domyślnie nic nie robi (enkoder pełnych
+  klatek i tak wysyła wszystko); `DamageEncoder` kasuje `previous` i oznacza
+  następną pełną klatkę powodem `baseline invalidated (client resumed)`.
+  Testy: `encoder::damage::tests::f008_7v2_*`.
+- `session::display` przy `RefreshDue` woła `invalidate_baseline()` i koduje
+  **najnowszą klatkę zapamiętaną w trakcie przerwy**, dzięki czemu nieruchomy
+  pulpit jest odmalowany od razu (AC-4), a nie przy najbliższej zmianie.
+  `DisplayUpdate::Resize` nie jest już wysyłany, więc znika przekazywanie
+  trackera przez ponowną aktywację.
+- `tests/suppress_output.rs` wysyła wznowienie jako **jeden zapis**: Refresh
+  Rect + Suppress Output, czyli dokładnie wyścig z §6. Asercje: sesja nie
+  dostaje Deactivate All ani Terminate, a nieaktualny obraz klienta staje się
+  pełną, **nowszą** klatką wzorca.
+
+**Czego test nie pokrywa (ustalone empirycznie 2026-09-24).** Próba asercji
+„odmaluj od czarnego obrazu” **pada**: IronRDP porównuje każdą bitmapę
+z własną kopią i wycina kafelki, które się zgadzają. To jest dokładnie
+odstępstwo zapisane w F-008.7v2 — klient, który porzuci obraz w trakcie
+przerwy, nie dostanie ich z powrotem. Domknięcie: fork (ADR-0011, Etap 1).
+
+**Czego test nie izoluje.** Po wyłączeniu `invalidate_baseline()` test nadal
+przechodzi: skoro w trakcie przerwy nic nie wysyłamy, zwykły diff i tak
+wyśle wszystko, co się zmieniło. Unieważnienie bazy jest zabezpieczeniem
+wymaganym przez F-008.6 (pełny pulpit) i pokrywają je testy jednostkowe
+enkodera, nie integracyjny.
+
+**Do ponownego testu ręcznego:** AC-3…AC-9 (pełna checklista), bo zmienił się
+mechanizm odświeżania.
