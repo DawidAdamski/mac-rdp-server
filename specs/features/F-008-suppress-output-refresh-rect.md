@@ -124,7 +124,8 @@ rozmiaru trzeba zmierzyć (AC-5, AC-7).
     wtedy flagę, więc widzimy wznowienie.
   - Pełny pulpit zawiera każdy prostokąt, o który mógł prosić klient, więc G-2
     jest w tym przypadku spełnione.
-- **F-008.7** (MUST) **Rozstrzygnięcie resetu porównań.** Na IronRDP 0.13.0
+- **F-008.7** (MUST) ~~**wersja 1 — zastąpiona 2026-09-24, patrz F-008.7v2
+  i §6.**~~ **Rozstrzygnięcie resetu porównań.** Na IronRDP 0.13.0
   pełne odświeżenie MUSI być wykonane przez `DisplayUpdate::Resize` z
   **bieżącym, niezmienionym** rozmiarem pulpitu (§2.0, „Wniosek”). Skutki:
   - IronRDP tworzy nowy `UpdateEncoder` bez kopii obrazu;
@@ -137,6 +138,30 @@ rozmiaru trzeba zmierzyć (AC-5, AC-7).
   (miganie, rozłączenie, reset skalowania okna), implementacja MUSI się
   zatrzymać i zaproponować zmianę tego wymagania: poprawkę w forku IronRDP
   (ADR-0011) albo nowy ADR.
+- **F-008.7v2** (MUST) **Approved (2026-09-24, właściciel).** Pełne
+  odświeżenie po wznowieniu MUSI być wykonane **bez** Deactivate All:
+  - `Encoder` dostaje metodę unieważniającą bazę porównania (np.
+    `invalidate_baseline()`), czystą i testowalną bez GUI: po jej wywołaniu
+    następna klatka jest zakodowana **w całości**, niezależnie od tego, co
+    enkoder wysłał wcześniej;
+  - po przejściu `suppressed` → `resumed` `session` woła tę metodę i koduje
+    najnowszą klatkę normalną ścieżką; `DisplayUpdate::Resize` NIE JEST
+    wysyłany;
+  - diff kafelkowy IronRDP (`encoder/mod.rs:240-271`) odetnie kafelki, których
+    zawartość klient już ma. Jego kopia obrazu to z definicji to, co klientowi
+    wysłano, więc wynik jest poprawny **dopóki klient nie porzuca swojego
+    obrazu w trakcie przerwy**.
+
+  Powód zmiany: ponowna aktywacja rozłącza klienta — `ironrdp-acceptor`
+  0.10.0 `connection.rs:833-848` kończy połączenie błędem, gdy w okno
+  reaktywacji trafi jakikolwiek Share Data PDU, a klienci wysyłają Refresh
+  Rect i Suppress Output parami (2/2 wznowień 2026-09-24, §6).
+
+  **Jawne odstępstwo:** jeśli klient porzuci obraz w trakcie przerwy, jego
+  niezmienione fragmenty zostaną nieodświeżone — wbrew duchowi Appendix A
+  <38>. Domknięcie: poprawka tolerancji PDU w forku IronRDP (ADR-0011,
+  Etap 1), po której można wrócić do wariantu z ponowną aktywacją albo dodać
+  jawne unieważnienie kopii obrazu w IronRDP.
 - **F-008.8** (MUST) Decyzja „kiedy odświeżyć” MUSI być czystą maszyną stanów
   (np. `SuppressTracker`) w warstwie bez typów IronRDP, testowalną jednostkowo.
   - Wejście: kolejne odczyty flagi i znaczniki czasu.
@@ -176,6 +201,11 @@ rozmiaru trzeba zmierzyć (AC-5, AC-7).
 
   Jeśli `ironrdp-session` 0.11.0 nie pozwala wysłać tych PDU albo obsłużyć
   ponownej aktywacji, implementacja opisuje to w §6 i zostaje przy AC ręcznych.
+
+  **Uzupełnienie 2026-09-24 (Approved, właściciel), po awarii AC-5:** test
+  MUSI odtwarzać wyścig, który tę awarię wywołał — klient wysyła Refresh Rect
+  i **natychmiast** Suppress Output `allowDisplayUpdates = 1`, bez czekania na
+  odpowiedź serwera, a sesja MUSI przeżyć wznowienie i dostać pełny obraz.
 - **F-008.13** (MUST) Istniejące testy przechodzą bez zmian, w tym
   `tests/architecture.rs` i `tests/rdp_pixels.rs`.
 
