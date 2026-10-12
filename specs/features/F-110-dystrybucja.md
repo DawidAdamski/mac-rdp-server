@@ -255,8 +255,9 @@ właściciela z 2026-10-12 idą **przed** resztą Fali 5.
 
 ## 6. Status
 
-**Draft** (2026-10-12, zrewidowany tego samego dnia po pytaniach właściciela).
-Napisany na wniosek właściciela („warto też od razu pomyśleć o tapie dla brew").
+**Approved** (2026-10-12). Napisany na wniosek właściciela („warto też od razu
+pomyśleć o tapie dla brew"), zrewidowany tego samego dnia po jego pytaniach
+i zaapprowany po rewizji („approve na spec").
 
 **Odpowiedzi właściciela na trzy pytania z pierwszej wersji (2026-10-12):**
 
@@ -273,6 +274,14 @@ Napisany na wniosek właściciela („warto też od razu pomyśleć o tapie dla 
    i AC-7/AC-8; zakup konta nie wraca do rozważenia, dopóki ktoś nie poprosi
    o `.app` z menu (F-111) albo o caska.
 
-**Czeka na approve właściciela.** Zmiany względem pierwszej wersji, które warto
-przejrzeć przed approve: F-110.2 (gotowa binarka zamiast builda ze źródeł jako
-ścieżka główna), F-110.14 i F-110.15 (nowe), korekty w §3.
+Zmiany względem pierwszej wersji, objęte tym approve: F-110.2 (gotowa binarka
+zamiast builda ze źródeł jako ścieżka główna), F-110.14 i F-110.15 (nowe),
+korekty mechanizmu w §3.
+
+**Kolejność realizacji** (dokumentacja pierwsza, decyzją właściciela):
+F-110.9 → F-110.10 → F-110.8 → F-110.14 → F-110.15 → F-110.2…F-110.7 → F-110.11.
+
+**Co wymaga osobnej zgody właściciela, bo wychodzi na zewnątrz:** utworzenie
+repozytorium tapa, opublikowanie GitHub Release z binarkami, włączenie GitHub
+Pages i ustawienie opisu repozytorium. Pliki i procedury powstają w repo
+wcześniej, żeby decyzja była jednym kliknięciem, a nie projektem.
