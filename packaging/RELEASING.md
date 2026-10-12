@@ -1,0 +1,118 @@
+# Releasing mac-rdp-server
+
+F-110.6. Written down so a release is a procedure, not a memory: tag, let CI
+build, copy one file into the tap.
+
+## 0. Before the tag
+
+- CI green on `main` (`fmt`, `clippy -D warnings`, `test`, `cargo check --locked`).
+- `version` in `Cargo.toml` bumped, and `Cargo.lock` regenerated and committed
+  (`cargo check --locked` would fail otherwise).
+- `README.md` → "What does not work yet" still honest for this version.
+- The manual acceptance criteria of whatever the release contains have actually
+  been run. For wave 5 that is F-110 AC-1, AC-4, AC-7.
+
+## 1. Tag and push
+
+```sh
+git tag -a v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+```
+
+That starts `.github/workflows/release.yml`, which:
+
+1. refuses the tag if it disagrees with `version` in `Cargo.toml`;
+2. builds `aarch64-apple-darwin` natively and `x86_64-apple-darwin`
+   cross-compiled on the same runner;
+3. ad-hoc signs both binaries (`codesign --sign -`), which is what an arm64
+   binary needs in order to run at all;
+4. packs each one flat with the example configuration, `README.md` and
+   `SECURITY.md`;
+5. renders the formula with `packaging/homebrew/render-formula.sh`;
+6. creates the GitHub Release with the two tarballs and
+   `mac-rdp-server.rb` attached.
+
+## 2. Update the tap
+
+The tap is a separate repository, `DawidAdamski/homebrew-mac-rdp-server`, with
+one file in it: `Formula/mac-rdp-server.rb`.
+
+```sh
+gh release download v0.1.0 --repo DawidAdamski/mac-rdp-server --pattern 'mac-rdp-server.rb' --dir /tmp
+cd ../homebrew-mac-rdp-server
+cp /tmp/mac-rdp-server.rb Formula/mac-rdp-server.rb
+git commit -am "mac-rdp-server 0.1.0" && git push
+```
+
+The rendered file carries a "GENERATED" header: the source of truth is
+`packaging/homebrew/mac-rdp-server.rb` in this repository, and an edit made in
+the tap is lost at the next release.
+
+## 3. Verify, as a user would
+
+```sh
+brew update
+brew install DawidAdamski/mac-rdp-server/mac-rdp-server
+mac-rdp-server --version          # must match the tag
+mac-rdp-server --check-permissions
+brew audit --strict --online DawidAdamski/mac-rdp-server/mac-rdp-server
+brew test DawidAdamski/mac-rdp-server/mac-rdp-server
+```
+
+And once per release, on a machine that has never had Rust on it (F-110 AC-4):
+
+```sh
+xattr -l "$(readlink -f "$(which mac-rdp-server)")"   # must NOT list com.apple.quarantine
+```
+
+## 4. What to put in the release notes
+
+One line that is not optional, because every upgrading user hits it
+(F-110.13):
+
+> After upgrading, grant Screen Recording and Accessibility again. macOS ties
+> a permission to the exact binary, so the new version is a different program
+> to it. The old entry stays in the list and can still look switched on —
+> remove it with the minus button and add the current one.
+
+## Doing it by hand, without CI
+
+```sh
+V=0.1.0
+for target in aarch64-apple-darwin x86_64-apple-darwin; do
+    cargo build --release --locked --target "$target"
+    bin="target/$target/release/mac-rdp-server"
+    codesign --force --sign - "$bin"
+    staging="$(mktemp -d)"
+    cp "$bin" packaging/mac-rdp-server.toml README.md SECURITY.md "$staging/"
+    tar -czf "mac-rdp-server-$V-$target.tar.gz" -C "$staging" .
+    rm -rf "$staging"
+done
+
+packaging/homebrew/render-formula.sh "$V" \
+    "mac-rdp-server-$V-aarch64-apple-darwin.tar.gz" \
+    "mac-rdp-server-$V-x86_64-apple-darwin.tar.gz" > /tmp/mac-rdp-server.rb
+
+gh release create "v$V" --title "v$V" --generate-notes \
+    "mac-rdp-server-$V-aarch64-apple-darwin.tar.gz" \
+    "mac-rdp-server-$V-x86_64-apple-darwin.tar.gz" \
+    /tmp/mac-rdp-server.rb
+```
+
+## Known rough edges
+
+- **The Intel binary is cross-compiled and untested.** GitHub's Intel macOS
+  runners are gone, so `x86_64-apple-darwin` is built on an Apple Silicon
+  runner and nobody runs it before release. If it turns out broken, drop the
+  `on_intel` block from the formula rather than shipping a binary that
+  crashes.
+- **No notarisation, by decision** (F-110 §3, `waves.md`). A binary installed
+  by a formula carries no quarantine attribute, so it runs; the cost is the
+  permission re-grant in §4.
+- **Building both targets by hand needs rustup, not Homebrew's `rust`.**
+  Homebrew's `rust` ships the standard library for the host only, so
+  `cargo build --target x86_64-apple-darwin` fails on a machine without
+  rustup. The CI runner uses rustup and adds both targets.
+- **The source path is `--HEAD` only.** The stable tarball holds a binary, not
+  sources, so `brew install --build-from-source` cannot build it. Verifying
+  F-110.3 means `brew install --HEAD`.

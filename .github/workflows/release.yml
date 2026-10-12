@@ -1,0 +1,87 @@
+# F-110.6 / F-110.7: a tag produces the release artefacts and the formula that
+# points at them, so the tap never has to be edited by hand. The procedure
+# around this workflow is packaging/RELEASING.md.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust with both macOS targets
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Refuse a tag that disagrees with Cargo.toml
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$tag" != "$manifest" ]; then
+            echo "tag v$tag does not match Cargo.toml version $manifest" >&2
+            exit 1
+          fi
+          echo "VERSION=$tag" >> "$GITHUB_ENV"
+
+      - name: Build, sign and pack both architectures
+        run: |
+          set -euo pipefail
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --locked --target "$target"
+            bin="target/$target/release/mac-rdp-server"
+
+            # An arm64 binary has to carry a signature to run at all; rustc
+            # already applies an ad-hoc one, and doing it explicitly keeps both
+            # architectures identical in this respect. No Developer ID is
+            # involved, by decision — F-110 §3.
+            codesign --force --sign - "$bin"
+            codesign --verify --verbose=2 "$bin"
+
+            # Flat tarball: the formula runs `bin.install "mac-rdp-server"`
+            # straight after extraction. Layout is mirrored in the formula.
+            staging=$(mktemp -d)
+            cp "$bin" packaging/mac-rdp-server.toml README.md SECURITY.md "$staging/"
+            tar -czf "mac-rdp-server-$VERSION-$target.tar.gz" -C "$staging" .
+            rm -rf "$staging"
+          done
+          shasum -a 256 mac-rdp-server-*.tar.gz
+
+      - name: Render the formula for the tap
+        run: |
+          packaging/homebrew/render-formula.sh "$VERSION" \
+            "mac-rdp-server-$VERSION-aarch64-apple-darwin.tar.gz" \
+            "mac-rdp-server-$VERSION-x86_64-apple-darwin.tar.gz" > mac-rdp-server.rb
+          ruby -c mac-rdp-server.rb
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file - \
+            "mac-rdp-server-$VERSION-aarch64-apple-darwin.tar.gz" \
+            "mac-rdp-server-$VERSION-x86_64-apple-darwin.tar.gz" \
+            mac-rdp-server.rb <<'NOTES'
+          **After upgrading, grant Screen Recording and Accessibility again.**
+          macOS ties a permission to the exact binary, so this version is a
+          different program to it. The old entry stays in the list and can
+          still look switched on — select it, remove it with the minus button,
+          add the current one, and restart the server. See
+          [SECURITY.md](SECURITY.md) before changing `--bind-addr`: this server
+          has no authentication.
+          NOTES

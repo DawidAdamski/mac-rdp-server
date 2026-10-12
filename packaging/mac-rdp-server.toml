@@ -1,0 +1,39 @@
+# Example configuration for mac-rdp-server.
+#
+# Nothing here is required: every key has a default, and anything given on the
+# command line wins over this file. Pass it explicitly:
+#
+#     mac-rdp-server --config ~/.config/mac-rdp-server.toml
+
+# Who may connect. 127.0.0.1 means "only this Mac" and is the default.
+#
+# WARNING: there is no authentication. "0.0.0.0" lets every device on your
+# network take over this Mac without being asked for anything. See SECURITY.md
+# and prefer an SSH tunnel.
+bind_addr = "127.0.0.1"
+
+# TCP port. 3389 is the RDP default, so clients need no port in the address.
+port = 3389
+
+# Which display to capture, as an index into the list the server logs at
+# startup ("display available ...").
+display = 0
+
+# Upper bound on frames sent per second. Lower it on a slow link; the server
+# coalesces frames, so a slow client gets fewer but current ones.
+max_fps = 30
+
+# error, warn, info, debug or trace.
+#
+# WARNING: `trace` logs every key the client sends, passwords included.
+# MAC_RDP_LOG in the environment overrides this key.
+log_level = "info"
+
+# "damage" sends only the parts of the screen that changed; "full" sends every
+# frame whole. Use "full" only to tell a capture problem from an encoder one.
+encoder = "damage"
+
+# Where the self-signed TLS certificate and key live. Defaults to
+# ~/Library/Application Support/mac-rdp-server/ and is generated on first run.
+# cert_path = "/path/to/server-cert.pem"
+# key_path  = "/path/to/server-key.pem"
