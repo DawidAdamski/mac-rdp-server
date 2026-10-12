@@ -225,7 +225,7 @@ Lista braków zgłoszona przez właściciela 2026-10-12, z przypisaniem:
 |---|---|---|
 | Środkowy przycisk myszy nie działa | **ADR-0014** (2026-10-12, Proposed) — fork IronRDP, Etap 1 z ADR-0011 | pierwsze w kolejce, czeka na approve ADR-0014 |
 | Brak dźwięku | F-103 (Fala 7) — spec do napisania | po środkowym przycisku |
-| Instalacja przez Homebrew | F-110 (**Approved 2026-10-12**) + F-106 + F-109 (Fala 5) | trzy pytania z §6 rozstrzygnięte (tap `homebrew-mac-rdp-server`, dokumentacja przed falą, bez Apple Developer); w realizacji |
+| Instalacja przez Homebrew | F-110 (**Implemented 2026-10-12**) + F-106 + F-109 (Fala 5) | formuła, procedura wydania, README, licencje, `SECURITY.md`, strona — zrobione; `brew audit --strict` i `brew style` zielone. Do Verified: publikacja wydania i testy ręczne |
 | Ikonka w pasku menu z włącznikiem serwera | **F-111** — nowy spec do napisania, zależy od F-106 i F-109 | — |
 | **README, licencje, `SECURITY.md`** | F-110.8–F-110.10 — wyciągnięte **przed** resztą Fali 5 (decyzja właściciela 2026-10-12: „Wypadało by") | nie zależy od niczego; repo jest publiczne bez jednego zdania ostrzeżenia |
 | Strona projektu (GitHub Pages) | F-110.11 (Draft 2026-10-12) | najtańsze, niezależne |
@@ -241,7 +241,7 @@ Fala, po której instalacja nie wymaga toolchaina Rusta w głowie użytkownika.
 |---|---|
 | F-106 | Bundle `.app`, `Info.plist`, własna tożsamość TCC, podpis |
 | F-109 | Usługa launchd (LaunchAgent) + podkomendy CLI: `install`, `uninstall`, `status` |
-| F-110 | Dystrybucja i dokumentacja: README, licencje, `SECURITY.md`, tap Homebrew, GitHub Pages, donacje — **Approved 2026-10-12** (`F-110-dystrybucja.md`) |
+| F-110 | Dystrybucja i dokumentacja: README, licencje, `SECURITY.md`, tap Homebrew, GitHub Pages, donacje — **Implemented 2026-10-12** (`F-110-dystrybucja.md`) |
 
 **Dwa fakty o macOS, które kształtują tę falę:**
 

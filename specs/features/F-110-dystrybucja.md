@@ -255,7 +255,7 @@ właściciela z 2026-10-12 idą **przed** resztą Fali 5.
 
 ## 6. Status
 
-**Approved** (2026-10-12). Napisany na wniosek właściciela („warto też od razu
+**Implemented** (2026-10-12). Napisany na wniosek właściciela („warto też od razu
 pomyśleć o tapie dla brew"), zrewidowany tego samego dnia po jego pytaniach
 i zaapprowany po rewizji („approve na spec").
 
@@ -281,7 +281,62 @@ korekty mechanizmu w §3.
 **Kolejność realizacji** (dokumentacja pierwsza, decyzją właściciela):
 F-110.9 → F-110.10 → F-110.8 → F-110.14 → F-110.15 → F-110.2…F-110.7 → F-110.11.
 
-**Co wymaga osobnej zgody właściciela, bo wychodzi na zewnątrz:** utworzenie
-repozytorium tapa, opublikowanie GitHub Release z binarkami, włączenie GitHub
-Pages i ustawienie opisu repozytorium. Pliki i procedury powstają w repo
-wcześniej, żeby decyzja była jednym kliknięciem, a nie projektem.
+### Implemented (2026-10-12)
+
+Wszystkie wymagania mają kod albo pliki w repo. Czego brakuje do **Verified**:
+kryteriów, których nie da się sprawdzić bez opublikowanego wydania i drugiego
+Maca — spisane niżej.
+
+| Wymaganie | Stan | Dowód |
+|---|---|---|
+| F-110.1 | gotowe (nazwa z decyzji właściciela) | `packaging/homebrew/mac-rdp-server.rb`, README §Install |
+| F-110.2 | gotowe | formuła: `head do` + `on_macos/on_arm/on_intel`, tarball składany przez `release.yml` |
+| F-110.3 | **sprawdzone pomiarem** | na czystym `CARGO_HOME`: `cargo fetch --locked --target host-tuple` (tyle rozwija `std_cargo_fetch_args`) wciągnął fork do `$CARGO_HOME/git/db/ironrdp-*`, a `cargo install --offline --locked --root … --path .` skompilował `ironrdp-server v0.13.0 (git …ac4cd7db)` i zainstalował działającą binarkę. `CARGO_HOME` Homebrew wskazuje na cache wspólny dla fazy fetch i build (`package_manager_cache.rb:54`) |
+| F-110.4 | gotowe | blok `test`: `--version`, `--help` zawiera `--check-permissions`, brakujący plik konfiguracyjny daje kod 1 i „reading config file" — wszystko offline, bez TCC, bez portu |
+| F-110.5 | gotowe | `caveats` zaczyna się od braku uwierzytelniania, ma oba uprawnienia, akapit o ponownym nadaniu po `brew upgrade` i ścieżkę przykładowej konfiguracji |
+| F-110.6 | gotowe | `packaging/RELEASING.md` (procedura + wariant ręczny + znane ostre krawędzie) |
+| F-110.7 | gotowe | `.github/workflows/release.yml`: tag → build obu architektur → podpis ad-hoc → tarballe → `render-formula.sh` → GitHub Release. Odrzuca tag niezgodny z `version` w `Cargo.toml` (sprawdzone lokalnie na `v0.1.0` i `v9.9.9`) |
+| F-110.8 | gotowe | `README.md` |
+| F-110.9 | gotowe | `LICENSE-MIT`, `LICENSE-APACHE` (tekst kanoniczny z apache.org) |
+| F-110.10 | gotowe | `SECURITY.md` |
+| F-110.11 | gotowe w repo | `docs/` + `packaging/build-docs.py`, CI biegnie z `--check`; sprawdzone, że `--check` wyłapuje rozjazd |
+| F-110.12 | **nie zrobione** | właściciel nie zdecydował o donacjach (MAY) |
+| F-110.13 | gotowe | README §„When it stops working after an update", `caveats`, notatki wydania w `release.yml` |
+| F-110.14 | gotowe | `src/perms.rs`, test `f110_14_instructions_cover_a_stale_entry_after_an_upgrade` |
+| F-110.15 | gotowe | `--check-permissions`, trzy testy `f110_15_*` |
+
+**Co zostało sprawdzone prawdziwym `brew` (2026-10-12).** Wyrenderowana formuła
+została wstawiona do lokalnego tapa i przeszła:
+
+- `brew audit --strict` → **0**,
+- `brew style` → **0**, „no offenses detected".
+
+Audyt wykrył przy tym dwa błędy kolejności bloków, oba poprawione: `head` musi
+stać przed `on_macos`, a `depends_on` przed `on_macos`. Bez tego kroku poszłyby
+do tapa.
+
+`brew audit --online` i `brew test` wymagają istniejącego wydania — zostają na
+moment publikacji.
+
+**Czego świadomie nie dokończono.** `brew install --HEAD` z lokalnego tapa
+zostało uruchomione i **przerwane**, bo Homebrew zapowiedział aktualizację
+trzech pakietów na maszynie właściciela (`llvm`, `pkgconf`, `sqlite`). Zdążył
+się zaktualizować `pkgconf` 3.0.7 → 3.0.8 (stary keg został, więc jest
+odwracalne). Pełny test instalacji przez `brew` wymaga zgody właściciela na te
+aktualizacje — stąd AC-2 zostaje otwarte, mimo że mechanizm z F-110.3 jest już
+udowodniony na poziomie `cargo`.
+
+**Do Verified brakuje:** AC-1, AC-2, AC-4, AC-5, AC-6, AC-7 (ręczne, część
+wymaga drugiego Maca i opublikowanego wydania), AC-9, AC-10. AC-3 zrobione
+w części offline, AC-8 ma test jednostkowy i czeka na potwierdzenie w logu.
+
+**Co wymaga osobnej zgody właściciela, bo wychodzi na zewnątrz:**
+
+1. `git push` — `main` ma 50 commitów niewypchniętych, w tym cały ten spec
+   i dokumentację;
+2. utworzenie repozytorium tapa `DawidAdamski/homebrew-mac-rdp-server`;
+3. tag `v0.1.0` i opublikowanie wydania (uruchamia `release.yml`);
+4. **Settings → Pages → main, katalog `/docs`** (F-110.11 bez tego nie działa);
+5. **Settings → Security → Private vulnerability reporting** — `SECURITY.md`
+   wskazuje ten kanał, więc musi być włączony;
+6. opis repozytorium, którego wciąż nie ma.

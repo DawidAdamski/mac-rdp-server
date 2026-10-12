@@ -20,6 +20,15 @@ class MacRdpServer < Formula
   homepage "https://github.com/DawidAdamski/mac-rdp-server"
   license any_of: ["MIT", "Apache-2.0"]
 
+  head do
+    url "https://github.com/DawidAdamski/mac-rdp-server.git", branch: "main"
+    depends_on "rust" => :build
+  end
+
+  # macOS 14 (Sonoma) is the floor: the ScreenCaptureKit APIs used to resolve
+  # the Retina backing-store size are gated on 14.0 (F-002.5, ADR-0002).
+  depends_on macos: :sonoma
+
   on_macos do
     on_arm do
       url "https://github.com/DawidAdamski/mac-rdp-server/releases/download/v@@VERSION@@/mac-rdp-server-@@VERSION@@-aarch64-apple-darwin.tar.gz"
@@ -30,15 +39,6 @@ class MacRdpServer < Formula
       sha256 "@@SHA256_INTEL@@"
     end
   end
-
-  head do
-    url "https://github.com/DawidAdamski/mac-rdp-server.git", branch: "main"
-    depends_on "rust" => :build
-  end
-
-  # macOS 14 (Sonoma) is the floor: the ScreenCaptureKit APIs used to resolve
-  # the Retina backing-store size are gated on 14.0 (F-002.5, ADR-0002).
-  depends_on macos: :sonoma
 
   # F-110.3. `install` runs with no network access, and `std_cargo_args` adds
   # `--offline` whenever a formula defines `fetch`. Our Cargo.lock points at a
