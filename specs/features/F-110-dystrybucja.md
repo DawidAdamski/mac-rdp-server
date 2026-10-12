@@ -11,46 +11,61 @@ toolchaina Rusta w głowie i bez pytania autora.
 ### Tap i formuła
 
 - **F-110.1** (MUST) Dystrybucja MUSI iść przez **własny tap Homebrew**
-  w repozytorium `DawidAdamski/homebrew-tap`, instalowany jako:
+  w repozytorium `DawidAdamski/homebrew-mac-rdp-server` (decyzja właściciela
+  2026-10-12), instalowany jako:
   ```
-  brew tap dawidadamski/tap
-  brew install dawidadamski/tap/mac-rdp-server
+  brew install DawidAdamski/mac-rdp-server/mac-rdp-server
   ```
-  Nazwa `homebrew-tap` (a nie `homebrew-mac-rdp-server`) MUSI być użyta, żeby
-  drugi program projektu nie wymagał drugiego tapa.
-- **F-110.2** (MUST) Formuła MUSI budować **ze źródeł**, z tarballa
-  przypiętego tagiem wydania i sumą `sha256`. Nie wolno jej wskazywać gałęzi.
-- **F-110.3** (MUST) Formuła MUSI definiować metodę `fetch` i używać helperów
-  Homebrew, nie własnej listy argumentów:
+  lub, rozpisane:
+  ```
+  brew tap DawidAdamski/mac-rdp-server
+  brew install mac-rdp-server
+  ```
+  Jeden tap na program jest utrwaloną konwencją właściciela — ma już
+  `homebrew-bsi` i `homebrew-floci-podman` (sprawdzone lokalnie 2026-10-12
+  w `/opt/homebrew/Library/Taps/dawidadamski/`).
+- **F-110.2** (MUST) Formuła MUSI mieć **dwie ścieżki**, w układzie jak
+  w istniejącej formule `bsi` właściciela:
+  1. **stabilna** — gotowa binarka z GitHub Release, przypięta tagiem i sumą
+     `sha256`, osobny `url` dla `on_arm` i `on_intel`, instalacja przez
+     `bin.install`. Bez zależności budujących, bez czekania na kompilację.
+  2. **`head do`** — build ze źródeł (`depends_on "rust" => :build`).
+
+  Powód, dla którego gotowa binarka jest ścieżką główną, jest zmierzony:
+  artefakt pobrany **przez formułę** nie dostaje atrybutu kwarantanny, więc
+  notaryzacja nie jest potrzebna (§3, „Kwarantanna"). Formuła nie MOŻE
+  wskazywać gałęzi zamiast tagu.
+- **F-110.3** (MUST) Ścieżka ze źródeł (`--HEAD`, `--build-from-source`) MUSI
+  definiować metodę `fetch` i używać helperów Homebrew, nie własnej listy
+  argumentów:
   ```ruby
   def fetch
     system "cargo", "fetch", *std_cargo_fetch_args
-  end
-
-  def install
-    system "cargo", "install", *std_cargo_args
   end
   ```
   Powód jest twardy: `install` w Homebrew biegnie **bez dostępu do sieci**,
   a `std_cargo_args` dokłada `--offline`, gdy `fetch` jest zdefiniowane.
   Nasz `Cargo.lock` wskazuje **zależność gitową** (fork IronRDP, ADR-0014),
   więc `cargo fetch` MUSI ściągnąć także repozytorium forku — bez tego
-  `install` padnie w trybie offline. To wymaganie jest testowalne i MUSI być
-  sprawdzone realnym `brew install --build-from-source` (AC-2).
+  `install` padnie w trybie offline. Testowalne, sprawdzane przez AC-2.
 - **F-110.4** (MUST) Formuła MUSI mieć blok `test`, który uruchamia binarkę
-  i sprawdza wyjście `--version`. Test nie może wymagać uprawnień TCC ani
-  otwartego portu.
+  i sprawdza wyjście `--version`. Test nie może wymagać uprawnień TCC,
+  otwartego portu ani sieci.
 - **F-110.5** (MUST) Formuła MUSI wypisać `caveats` zawierające: dwa
   uprawnienia do nadania (Screen Recording, Accessibility), ścieżkę do pliku
   konfiguracyjnego, ostrzeżenie o braku uwierzytelniania (F-110.10) oraz
-  informację z F-110.13 o konieczności ponownego nadania uprawnień po
-  aktualizacji.
+  zdanie z F-110.13 o ponownym nadaniu uprawnień po aktualizacji.
+  Odstępstwo od konwencji jest świadome: `yabai`, `skhd` i `borders` **nie**
+  wspominają uprawnień w `caveats` (§3), ale one proszą system o okno dialogowe
+  przy starcie, a nasz `CGEventPost` bez Accessibility **milczy** — użytkownik
+  nie dostanie żadnego sygnału, jeśli nie powiemy mu tego wcześniej.
 - **F-110.6** (MUST) Wydanie MUSI być opisanym, powtarzalnym procesem: tag
-  `vX.Y.Z` → GitHub Release → aktualizacja `url` i `sha256` w formule.
-  Procedura MUSI być zapisana w repo, nie w pamięci autora.
-- **F-110.7** (SHOULD) Aktualizacja formuły POWINNA być zautomatyzowana
-  workflow'em uruchamianym tagiem wydania, żeby wersja w tapie nie rozjeżdżała
-  się z wydaniem.
+  `vX.Y.Z` → build obu architektur → GitHub Release → aktualizacja `url`
+  i `sha256` w formule. Procedura MUSI być zapisana w repo, nie w pamięci
+  autora.
+- **F-110.7** (SHOULD) Build artefaktów i aktualizacja formuły POWINNY być
+  zautomatyzowane workflow'em uruchamianym tagiem wydania, żeby wersja w tapie
+  nie rozjeżdżała się z wydaniem.
 
 ### Dokumentacja
 
@@ -71,11 +86,27 @@ toolchaina Rusta w głowie i bez pytania autora.
   samych plików Markdown, a nie utrzymywana równolegle.
 - **F-110.12** (MAY) `.github/FUNDING.yml` MOŻE zostać dodany, jeśli
   właściciel zdecyduje się na donacje (model z `waves.md` §Model wydania).
+
+### Uprawnienia po aktualizacji
+
 - **F-110.13** (MUST) Dokumentacja MUSI opisywać zachowanie uprawnień przy
-  aktualizacji, zgodnie ze stanem faktycznym z §3: po `brew upgrade` uprawnienia
-  trzeba nadać **ponownie**, a przełącznik w Ustawieniach może przy tym nadal
-  wyglądać na włączony. Dopóki F-106 nie da stabilnej tożsamości podpisu, to
-  jest udokumentowane ograniczenie, nie błąd do ukrycia.
+  aktualizacji zgodnie ze stanem faktycznym z §3: po `brew upgrade`
+  **oba uprawnienia trzeba nadać ponownie**, na liście w Ustawieniach zostaje
+  **stary wpis**, który może wyglądać na włączony, i trzeba go usunąć (minus),
+  a potem dodać nowy. To nie jest nasz błąd ani przeoczenie, tylko cena braku
+  Developer ID — ta sama, którą płacą `yabai` i `skhd`. Dokumentujemy ją
+  wprost, zamiast udawać, że jej nie ma.
+- **F-110.14** (MUST) Komunikat z `perms::explain()` MUSI wymieniać ten
+  przypadek: nie wystarczy „włącz w Ustawieniach", musi być „jeśli
+  aktualizowałeś serwer albo terminal, usuń stary wpis z listy i dodaj
+  ponownie". To jedyna zmiana w `src/` w tym specu i jedyne wymaganie
+  z własnym testem jednostkowym.
+- **F-110.15** (SHOULD) Serwer POWINIEN mieć tryb sprawdzenia uprawnień
+  (`--check-permissions`), który wypisuje stan obu uprawnień i instrukcję,
+  i kończy się kodem ≠ 0, gdy któregoś brakuje. To jest odpowiedź na jedyny
+  realny problem zgłaszany użytkownikom takich narzędzi: „nadałem, a nie
+  działa". Jeśli F-109 (podkomendy CLI) wejdzie wcześniej, wymaganie przenosi
+  się tam i ten punkt znika.
 
 ## 3. Odniesienia do dokumentacji
 
@@ -83,93 +114,165 @@ toolchaina Rusta w głowie i bez pytania autora.
 |---|---|
 | Helpery Cargo, brak sieci w `install` | Homebrew Formula Cookbook, „Package managers such as Cargo, Go modules, npm and Bundler download dependencies while `install` runs" |
 | `std_cargo_args`, `std_cargo_fetch_args` | `Library/Homebrew/formula.rb:2206-2225` (Homebrew 7.0.9, sprawdzone lokalnie 2026-10-12) |
+| Kwarantanna dotyczy casków, nie formuł | `Library/Homebrew/cask/quarantine.rb:19` — `QUARANTINE_ATTRIBUTE = "com.apple.quarantine"`; w kodzie formuł nie występuje |
 | Tap jako repozytorium `homebrew-*` | Homebrew Formula Cookbook, §Taps |
-| Klucz grantu TCC = *designated requirement* podpisu | `waves.md` §Fala 5 pkt 2; raporty społeczności (skhd, runtime Node) |
+| Granty TCC a aktualizacja przez Homebrew | yabai issue #1968 (wypowiedź opiekuna, 2024-02-13) — <https://github.com/koekeishiya/yabai/issues/1968> |
+| Jak robią to inni | formuły `yabai` 7.1.25, `skhd` 0.3.9 (tap `koekeishiya/homebrew-formulae`), `borders` 1.9.0 (tap `FelixKratz/homebrew-formulae`), pobrane 2026-10-12 |
 | Brak uwierzytelniania w serwerze | `specs/00-vision.md` §Non-goals; F-001 |
 
 ### Zbadany stan faktyczny (2026-10-12)
 
-**Nasza binarka jest podpisana ad-hoc i jej tożsamość zmienia się między
-buildami.** Zmierzone na tej maszynie, `codesign -dvvv`:
+#### Co TCC trzyma przy podpisie ad-hoc — pomiar
 
-| Build | `Identifier` | `CDHash` |
-|---|---|---|
-| `target/debug/mac-rdp-server` | `mac_rdp_server-7139bc4f053fe608` | `3a6bee57…` |
-| `target/release/mac-rdp-server` | `mac_rdp_server-b7ab3a30d18fac95` | `e84ee64f…` |
+`codesign -d --requirements -` na trzech binarkach na tej maszynie:
 
-W obu `Signature=adhoc`, `TeamIdentifier=not set`. Zmienia się **nie tylko**
-skrót zawartości, ale i sam identyfikator podpisu — rustc dokłada do niego hash.
-TCC nie ma więc czego trzymać: po każdej przebudowie, czyli po każdym
-`brew upgrade` budującym ze źródeł, jest to dla systemu **inny program**.
+| Binarka | *Designated requirement* |
+|---|---|
+| `/opt/homebrew/Cellar/bsi/0.1.0/bin/bsi` (z tapa właściciela) | `cdhash H"6061fcea…"` |
+| `target/release/mac-rdp-server` (nasza) | `cdhash H"e84ee64f…"` |
+| nasza, przepodpisana `--sign - --identifier com.dawidadamski.mac-rdp-server` | `cdhash H"6410ee93…"` |
 
-**Skutek, na który trzeba uważać w instrukcji.** Zgłoszenia społeczności
-(skhd na macOS 15+, runtime Node) opisują zgodnie, że przełącznik w Ustawieniach
-→ Prywatność potrafi **nadal pokazywać nadane uprawnienie**, choć zdarzenia nie
-płyną: w bazie TCC zostaje wpis z nieaktualnym wymaganiem podpisu. To jest ten
-sam objaw, który w tym projekcie wraca po każdej aktualizacji iTerma (patrz
-pamięć `iterm-update-breaks-accessibility`). Instrukcja MUSI uczyć rozpoznawać
-go po objawie, nie po przełączniku: usuń wpis z listy i dodaj ponownie.
+Trzeci wiersz jest tu najważniejszy: **jawny, stabilny identyfikator podpisu
+nie trafia do DR w ogóle.** Przy podpisie ad-hoc DR to *wyłącznie* skrót
+zawartości. Wniosek praktyczny: nie ma sensu kombinować z `--identifier`
+w formule — to nic nie kupuje.
 
-**Stan repo w dniu pisania speca.** Brak `README.md`, brak plików licencji,
-brak `SECURITY.md`. Repozytorium `DawidAdamski/mac-rdp-server` jest **publiczne**
-i **bez opisu** — serwer bez uwierzytelniania leży publicznie bez jednego zdania
-ostrzeżenia. F-110.8–F-110.10 zamykają tę dziurę i są najpilniejszą częścią
-tego speca, niezależnie od Homebrew.
+**Korekta wcześniejszej wersji tego speca.** Pierwsza wersja (2026-10-12)
+tłumaczyła problem tym, że rustc wkleja hash do pola `Identifier`
+(`mac_rdp_server-b7ab3a30d18fac95`). To prawda, ale **nie to** jest mechanizmem
+— identyfikatora w DR nie ma. Konkluzja zostaje, powód był zły.
 
-**Dlaczego formuła, a nie cask z gotową binarką.** Artefakt pobrany
-przeglądarką albo caskiem dostaje atrybut kwarantanny, a bez notaryzacji
-(Apple Developer, 99 USD/rok) Gatekeeper go zablokuje. Formuła budująca na
-maszynie użytkownika kwarantanny nie dostaje — to jest ścieżka, która działa
-dziś, bez konta deweloperskiego. Cena: użytkownik musi mieć toolchain Rusta
-(`depends_on "rust" => :build` załatwia to przez Homebrew) i czeka na
-kompilację.
+#### Druga, niezależna przyczyna: ścieżka
+
+Homebrew instaluje każdą wersję w katalogu z numerem wersji, a w `bin/` kładzie
+tylko symlink. Zmierzone: `/opt/homebrew/bin/bsi -> ../Cellar/bsi/0.1.0/bin/bsi`.
+TCC zapisuje dla binarki bez bundle'a **ścieżkę**, więc po `brew upgrade`
+powstaje nowy wpis, a stary zostaje na liście.
+
+Opiekun `yabai` opisuje dokładnie to w issue #1968 (2024-02-13): każdy
+`brew upgrade yabai` pyta o Accessibility od nowa i **dokłada kolejny wpis**,
+starych nie usuwa. Jego dwa zdania warte zapamiętania: „Just remove stale entry
+when upgrading" oraz „I'm not aware of any workaround as long as you install
+using homebrew".
+
+To znaczy, że **same dwie przyczyny działają niezależnie**: nawet gdyby F-106
+dał stabilny DR (certyfikat self-signed), wersjonowana ścieżka Cellara dalej
+tworzyłaby nowy wpis. Przy instalacji przez Homebrew ponowne nadanie uprawnień
+jest nieuniknione — niezależnie od podpisu.
+
+#### Kwarantanna: formuła ≠ cask (zmierzone)
+
+Na gotowej binarce zainstalowanej formułą z GitHub Release:
+
+- `xattr -l /opt/homebrew/Cellar/bsi/0.1.0/bin/bsi` → tylko
+  `com.apple.provenance`, **brak `com.apple.quarantine`**;
+- `INSTALL_RECEIPT.json` → `spec: stable`, `poured_from_bottle: false`, czyli
+  plik przyszedł z tarballa wydania, nie z lokalnego builda ani z bottle;
+- `codesign` → `Signature=adhoc`, `TeamIdentifier=not set`;
+- binarka **działa** (`bsi --version` → `bsi 0.1.0`).
+
+Kwarantannę nakłada **Homebrew Cask**, nie formuła (`cask/quarantine.rb`).
+Stąd korekta: zdanie „artefakt pobrany caskiem dostaje kwarantannę, więc bez
+notaryzacji Gatekeeper zablokuje" jest prawdziwe dla casków i `.dmg`,
+ale **nie** dla formuły z gotową binarką. Ten sam błąd siedzi w `waves.md`
+§Fala 5 („Tap Homebrew z formułą budującą ze źródeł omija to czysto") —
+omija to także formuła z gotową binarką, i taniej dla użytkownika.
+
+#### Jak robią to inni (pobrane 2026-10-12)
+
+`yabai` 7.1.25, `skhd` 0.3.9, `borders` (JankyBorders) 1.9.0 — trzy narzędzia
+CLI dla macOS, które potrzebują Accessibility i/lub nagrywania ekranu:
+
+- wszystkie trzy to **formuły w prywatnym tapie**, nie caski;
+- wszystkie podpisują się **ad-hoc, wprost w formule** — `codesign -fs -`
+  (`yabai`, `skhd`), `codesign --force -s -` (`borders`);
+- **żadne nie ma Developer ID ani notaryzacji**;
+- **żadne nie wspomina uprawnień w `caveats`** — tam jest konfiguracja, usługa
+  i logi; uprawnienia są w README/wiki;
+- wszystkie trzy oferują launchd: `yabai --start-service`, `skhd --start-service`,
+  `service do` w `borders`;
+- README `yabai`: proces prosi o dostęp przy starcie i **trzeba go zrestartować
+  po nadaniu uprawnienia** — czyli dokładnie to, co robi nasz
+  `perms::ensure` + „restart the server" w `explain()`.
+
+Czyli odpowiedź na pytanie właściciela („po co nam Apple Developer, inni po
+prostu mówią, co nadać") jest zmierzona i brzmi: **nie jest nam potrzebne.**
+Cała ta klasa narzędzi żyje na podpisie ad-hoc, a koszt — ponowne nadanie
+uprawnień po aktualizacji — płaci i dokumentuje.
+
+#### Stan repo w dniu pisania speca
+
+Brak `README.md`, brak plików licencji, brak `SECURITY.md`. Repozytorium
+`DawidAdamski/mac-rdp-server` jest **publiczne** i **bez opisu** — serwer bez
+uwierzytelniania leży publicznie bez jednego zdania ostrzeżenia.
+F-110.8–F-110.10 zamykają tę dziurę, nie zależą od niczego innego i decyzją
+właściciela z 2026-10-12 idą **przed** resztą Fali 5.
 
 ## 4. Kryteria akceptacji
 
-1. **AC-1** `brew tap dawidadamski/tap && brew install dawidadamski/tap/mac-rdp-server`
+1. **AC-1** `brew install DawidAdamski/mac-rdp-server/mac-rdp-server`
    na **czystym koncie użytkownika** kończy się sukcesem, a `mac-rdp-server
    --version` wypisuje wersję zgodną z tagiem.
-2. **AC-2** Instalacja przechodzi z `--build-from-source` przy włączonej
-   piaskownicy Homebrew, czyli zależność gitowa forku IronRDP została pobrana
-   w fazie `fetch` (F-110.3). Dowód: log instalacji bez błędu sieci w `install`.
-3. **AC-3** `brew audit --strict --online dawidadamski/tap/mac-rdp-server`
-   i `brew test` przechodzą.
-4. **AC-4** `brew uninstall` usuwa binarkę i nie zostawia plików poza
+2. **AC-2** Ścieżka ze źródeł przechodzi: `brew install --HEAD` (albo
+   `--build-from-source`) przy włączonej piaskownicy Homebrew, czyli zależność
+   gitowa forku IronRDP została pobrana w fazie `fetch` (F-110.3). Dowód: log
+   instalacji bez błędu sieci w `install`.
+3. **AC-3** `brew audit --strict --online` i `brew test` przechodzą.
+4. **AC-4** Na Macu, **na którym nigdy nie było Rusta**, instalacja ze ścieżki
+   stabilnej (gotowa binarka) kończy się działającym `--version`, a
+   `xattr -l` na zainstalowanym pliku **nie pokazuje `com.apple.quarantine`**.
+   To jest dowód, że notaryzacja nie jest potrzebna — hipoteza z §3 sprawdzona
+   na innej maszynie niż ta, na której ją zmierzono.
+5. **AC-5** `brew uninstall` usuwa binarkę i nie zostawia plików poza
    katalogiem konfiguracyjnym użytkownika.
-5. **AC-5** Osoba, która nie zna projektu, po samym README nadaje oba
+6. **AC-6** Osoba, która nie zna projektu, po samym README nadaje oba
    uprawnienia i łączy się z Windowsa — bez pytania autora. Test na żywym
    człowieku, nie myślowy.
-6. **AC-6** `brew upgrade` na nowszy tag: serwer działa po ponownym nadaniu
-   uprawnień, a instrukcja z F-110.13 opisuje dokładnie to, co się stało
-   (łącznie z przełącznikiem, który może wyglądać na włączony).
-7. **AC-7** Strona GitHub Pages otwiera się pod publicznym adresem i jej treść
+7. **AC-7** `brew upgrade` na nowszy tag: na liście w Ustawieniach widać
+   **stary wpis obok nowego**, serwer działa po usunięciu starego i nadaniu
+   uprawnień na nowo, a instrukcja z F-110.13 opisuje dokładnie ten przebieg.
+8. **AC-8** Serwer uruchomiony bez uprawnień wypisuje komunikat z F-110.14,
+   zawierający zdanie o usunięciu starego wpisu po aktualizacji. Test
+   jednostkowy sprawdza tę treść, ręczny — że faktycznie pojawia się w logu.
+9. **AC-9** Strona GitHub Pages otwiera się pod publicznym adresem i jej treść
    zgadza się z README (F-110.11).
-8. **AC-8** `SECURITY.md` i README ostrzegają o braku uwierzytelniania
-   w miejscu, którego nie da się przeoczyć — nie w przypisie na końcu.
+10. **AC-10** `SECURITY.md` i README ostrzegają o braku uwierzytelniania
+    w miejscu, którego nie da się przeoczyć — nie w przypisie na końcu.
 
 ## 5. Poza zakresem
 
-- **Podpis Developer ID, notaryzacja, bundle `.app`, stabilna tożsamość TCC** —
-  F-106. Ten spec świadomie żyje z ograniczeniem i je dokumentuje.
+- **Developer ID, notaryzacja, bundle `.app`, stabilna tożsamość TCC** — F-106.
+  Ten spec świadomie żyje z ograniczeniem i je dokumentuje. §3 zawęża przy tym
+  F-106: sam certyfikat **nie wystarczy**, dopóki instalacja idzie w wersjonowaną
+  ścieżkę Cellara.
 - **LaunchAgent i podkomendy `install`/`uninstall`/`status`** — F-109. Formuła
-  nie instaluje usługi; jeśli F-109 wejdzie wcześniej, dojdzie tu
-  `service do` w formule jako osobne wymaganie.
+  nie instaluje usługi; jeśli F-109 wejdzie wcześniej, dojdzie tu `service do`
+  w formule jako osobne wymaganie (tak jak w `borders`).
 - **Ikonka w pasku menu** — F-111.
 - **Zgłoszenie do `homebrew-core`** — wymaga progu popularności; własny tap jest
   docelowy na tę falę.
-- **Dystrybucja przez MacPorts, nix, `.pkg`** — poza projektem.
+- **Dystrybucja przez MacPorts, nix, `.pkg`, `.dmg`** — poza projektem.
 
 ## 6. Status
 
-**Draft** (2026-10-12). Napisany na wniosek właściciela („warto też od razu
-pomyśleć o tapie dla brew"). Czeka na approve.
+**Draft** (2026-10-12, zrewidowany tego samego dnia po pytaniach właściciela).
+Napisany na wniosek właściciela („warto też od razu pomyśleć o tapie dla brew").
 
-**Do decyzji właściciela przy approve:**
-1. Nazwa tapa: `homebrew-tap` (rekomendacja, F-110.1) czy
-   `homebrew-mac-rdp-server`?
-2. Czy F-110.8–F-110.10 (README, licencje, `SECURITY.md`) wyciągamy **przed**
-   Falą 5 jako osobną, małą pozycję? Repo jest publiczne już dziś i nie ma ani
-   zdania ostrzeżenia, a to nie zależy od niczego innego.
-3. Czy w ogóle wchodzimy w Apple Developer (99 USD/rok). Odpowiedź „nie"
-   zamraża F-110.13 jako trwałe ograniczenie i upraszcza F-106; odpowiedź
-   „tak" otwiera cask z gotową binarką i granty TCC przeżywające aktualizacje.
+**Odpowiedzi właściciela na trzy pytania z pierwszej wersji (2026-10-12):**
+
+1. Nazwa tapa → **`homebrew-mac-rdp-server`** („1. homebrew-mac-rdp-server").
+   F-110.1 poprawione; zgodne z jego własną konwencją (`homebrew-bsi`,
+   `homebrew-floci-podman`).
+2. Czy README/licencje/`SECURITY.md` przed Falą 5 → **tak** („Wypadało by").
+   Zapisane w §3 i w `waves.md`.
+3. Apple Developer 99 USD/rok → **nie**, z uzasadnieniem: „Z tego co widzę
+   większości aplikacji na homebrew to po prostu mówią, że appka wymaga danych
+   uprawnień i ludzie sami klikają dodając uprawnienia. Sprawdź sobie jak inni
+   to robią." Sprawdzone — §3 „Jak robią to inni" potwierdza to pomiarem
+   na trzech formułach. Konsekwencje wpisane w F-110.13, F-110.14, F-110.15
+   i AC-7/AC-8; zakup konta nie wraca do rozważenia, dopóki ktoś nie poprosi
+   o `.app` z menu (F-111) albo o caska.
+
+**Czeka na approve właściciela.** Zmiany względem pierwszej wersji, które warto
+przejrzeć przed approve: F-110.2 (gotowa binarka zamiast builda ze źródeł jako
+ścieżka główna), F-110.14 i F-110.15 (nowe), korekty w §3.

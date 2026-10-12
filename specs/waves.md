@@ -34,7 +34,7 @@ Kierunek został ustalony przez właściciela **2026-08-07**:
 | Kolejność | Fala 3 → bezpieczeństwo → pakowanie | Damage/kursor/resize przed auth; auth przed dystrybucją |
 | Uwierzytelnianie | **NLA/CredSSP**, hasło w Keychainie | Fala 4, spec F-101 + ADR-0012 |
 | Ekspozycja sieciowa | **Pełny LAN jako scenariusz pierwszoklasowy** | Model zagrożeń musi zakładać napastnika w sieci — F-108 |
-| Podpisywanie | **Brak Developer ID** (na razie) | Ścieżka ad-hoc/self-signed; dystrybucja przez tap Homebrew, nie notaryzowany `.dmg` |
+| Podpisywanie | **Bez Developer ID** — decyzja właściciela 2026-10-12 | Podpis ad-hoc, dystrybucja formułą w tapie Homebrew; cena (ponowne nadanie uprawnień po aktualizacji) udokumentowana w F-110.13, tak jak u `yabai`/`skhd` |
 | Model wydania | Darmowy OSS + opcjonalne donacje | F-110: README, licencje, `SECURITY.md`, `FUNDING.yml` |
 
 **Zasada porządkująca te trzy fale:** *najpierw serwer wolno wystawić, potem
@@ -225,8 +225,9 @@ Lista braków zgłoszona przez właściciela 2026-10-12, z przypisaniem:
 |---|---|---|
 | Środkowy przycisk myszy nie działa | **ADR-0014** (2026-10-12, Proposed) — fork IronRDP, Etap 1 z ADR-0011 | pierwsze w kolejce, czeka na approve ADR-0014 |
 | Brak dźwięku | F-103 (Fala 7) — spec do napisania | po środkowym przycisku |
-| Instalacja przez Homebrew | F-110 (Draft 2026-10-12) + F-106 + F-109 (Fala 5) | F-110 czeka na approve; trzy pytania w §6 speca |
+| Instalacja przez Homebrew | F-110 (Draft 2026-10-12, zrewidowany) + F-106 + F-109 (Fala 5) | trzy pytania z §6 **rozstrzygnięte przez właściciela 2026-10-12** (tap `homebrew-mac-rdp-server`, dokumentacja przed falą, bez Apple Developer); spec czeka na approve |
 | Ikonka w pasku menu z włącznikiem serwera | **F-111** — nowy spec do napisania, zależy od F-106 i F-109 | — |
+| **README, licencje, `SECURITY.md`** | F-110.8–F-110.10 — wyciągnięte **przed** resztą Fali 5 (decyzja właściciela 2026-10-12: „Wypadało by") | nie zależy od niczego; repo jest publiczne bez jednego zdania ostrzeżenia |
 | Strona projektu (GitHub Pages) | F-110.11 (Draft 2026-10-12) | najtańsze, niezależne |
 | Przegląd aktualizacji pakietów | `screencapturekit` 8.0.1 → 11.0.0 i `toml` 0.9 → 1.1 wymagają ADR (ADR-0002 §Ryzyko); patche robione na bieżąco | 2026-10-12: zrobione rcgen, thiserror, clap, async-trait |
 
@@ -248,19 +249,31 @@ Fala, po której instalacja nie wymaga toolchaina Rusta w głowie użytkownika.
    dziać w sesji graficznej zalogowanego użytkownika (`gui/$UID`). Demon roota
    tego nie zrobi — to nie jest kwestia uprawnień do naprawienia, tylko tego,
    czym jest sesja okienkowa w macOS.
-2. **TCC kluczuje granty po *designated requirement* podpisu.** Podpis ad-hoc
-   zmienia cdhash przy każdym buildzie, więc bez stabilnej tożsamości
-   użytkownik nadaje Screen Recording i Accessibility po każdej aktualizacji.
-   Hipoteza do zweryfikowania empirycznie w F-106: **lokalnie wygenerowany
-   certyfikat self-signed** daje stabilny DR i granty przeżywają aktualizację.
-   To jest główna różnica w komforcie użytkownika przy braku Developer ID —
-   albo się potwierdzi, albo dokumentujemy „nadaj uprawnienia ponownie".
+2. **Granty TCC gubią się po aktualizacji z dwóch niezależnych powodów.**
+   Zmierzone 2026-10-12, szczegóły w F-110 §3:
+   - *designated requirement* podpisu ad-hoc to **wyłącznie `cdhash`** — jawny,
+     stabilny `--identifier` do DR nie trafia w ogóle, więc kombinowanie z nim
+     nic nie daje;
+   - Homebrew instaluje każdą wersję w **wersjonowanej ścieżce** Cellara,
+     a TCC zapisuje dla binarki bez bundle'a ścieżkę — po `brew upgrade`
+     powstaje nowy wpis, a stary zostaje na liście (yabai #1968, wypowiedź
+     opiekuna).
+
+   To zawęża F-106: **sam certyfikat self-signed nie wystarczy**, dopóki
+   instalacja idzie w wersjonowaną ścieżkę. Stabilna tożsamość TCC wymaga
+   stabilnej ścieżki, czyli bundle'a `.app` w stałym miejscu. Przy instalacji
+   przez Homebrew dokumentujemy „nadaj uprawnienia ponownie i usuń stary wpis"
+   (F-110.13) — tak samo jak `yabai` i `skhd`.
 
 **Kanał dystrybucji przy braku notaryzacji.** `.dmg` pobrany przeglądarką
-dostaje atrybut kwarantanny i Gatekeeper go zablokuje. **Tap Homebrew z formułą
-budującą ze źródeł** omija to czysto — artefakt zbudowany lokalnie kwarantanny
-nie dostaje. To ścieżka główna; `.dmg` z instrukcją „prawy klik → Otwórz"
-najwyżej jako dodatek.
+i artefakt instalowany **caskiem** dostają atrybut kwarantanny, więc bez
+notaryzacji Gatekeeper je zablokuje. **Formuła w tapie Homebrew** omija to
+czysto — i, co zmierzone 2026-10-12 (F-110 §3 „Kwarantanna"), dotyczy to także
+formuły z **gotową binarką**: kwarantannę nakłada Homebrew Cask, nie formuła.
+Dlatego ścieżką główną jest gotowa binarka z wydania (szybko, bez toolchaina
+Rusta u użytkownika), a build ze źródeł zostaje jako `--HEAD`. Wcześniejsze
+zdanie w tym miejscu („formuła budująca ze źródeł") było zbyt ostrożne —
+poprawione.
 
 **Kryterium fali:** na czystym koncie użytkownika, bez pomocy autora:
 instalacja → nadanie dwóch uprawnień → ustawienie hasła → połączenie z Windowsa.
@@ -384,17 +397,27 @@ w tej aktualizacji.
 
 ## Uzupełnienie 2026-10-12 — co ustalił spec F-110
 
-Hipoteza z §Fala 5 pkt 2 („lokalnie wygenerowany certyfikat self-signed daje
-stabilny DR") **nie została jeszcze sprawdzona**, ale F-110 §3 dokłada do niej
-pomiar, który zawęża problem: nasza binarka jest podpisana ad-hoc i między
-dwoma buildami tego samego kodu zmienia się **nie tylko jej cdhash, ale i sam
-`Identifier` podpisu** (`mac_rdp_server-7139bc4f053fe608` vs
-`mac_rdp_server-b7ab3a30d18fac95`). Bez jawnego `codesign` nie ma czego
-stabilizować, więc eksperyment z F-106 trzeba robić na podpisie nadanym
-osobnym krokiem budowania, nie na tym, co zostawia rustc.
+**Hipoteza „self-signed daje stabilny DR" jest teraz węższa, niż była.**
+F-110 §3 zmierzył, że przy podpisie ad-hoc *designated requirement* to
+**wyłącznie `cdhash`** — jawny `--identifier com.dawidadamski.mac-rdp-server`
+nadany `codesign`iem do DR **nie trafia wcale**. Pierwsza wersja tego
+uzupełnienia wskazywała na zmienny `Identifier` podpisu
+(`mac_rdp_server-7139bc4f053fe608` vs `mac_rdp_server-b7ab3a30d18fac95`) jako
+przyczynę — konkluzja była dobra, mechanizm zły, poprawione w F-110 §3.
 
-Druga rzecz, która wyszła przy pisaniu F-110 i nie należy do żadnej fali:
-repozytorium jest **publiczne**, bez README, bez plików licencji i bez
-`SECURITY.md`, przy serwerze, który nie ma uwierzytelniania. F-110.8–F-110.10
-to zamykają, ale nie zależą od niczego z Fali 5 — kandydat do wyciągnięcia
-przed kolejkę (pytanie 2 w §6 speca F-110).
+Do tego doszła **druga, niezależna przyczyna**: wersjonowana ścieżka Cellara.
+Eksperyment F-106 ma więc sens tylko razem ze stabilną ścieżką (bundle `.app`),
+a nie na binarce instalowanej formułą — tam ponowne nadanie uprawnień jest
+nieuniknione niezależnie od podpisu.
+
+**Odpowiedź właściciela na pytanie o Apple Developer: nie.** Uzasadnienie
+sprawdzone pomiarem (F-110 §3 „Jak robią to inni"): `yabai`, `skhd` i `borders`
+to formuły podpisane ad-hoc, bez Developer ID i bez notaryzacji; koszt —
+ponowne nadanie uprawnień po aktualizacji — dokumentują, a nie ukrywają.
+Wpis „Podpisywanie | Brak Developer ID (na razie)" w §Cel Fal 4–6 przestaje
+być „na razie" i staje się decyzją.
+
+**Dokumentacja wyciągnięta przed kolejkę.** Repozytorium jest **publiczne**,
+bez README, bez plików licencji i bez `SECURITY.md`, przy serwerze, który nie
+ma uwierzytelniania. Właściciel zdecydował 2026-10-12 („Wypadało by"), że
+F-110.8–F-110.10 idą **przed** resztą Fali 5. Startują po approve speca F-110.
