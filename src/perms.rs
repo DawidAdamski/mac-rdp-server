@@ -89,6 +89,14 @@ pub fn request(permission: Permission) -> PermissionState {
 }
 
 /// What the user has to do to grant a permission.
+///
+/// F-110.14: the stale-entry case is part of the instruction, not a footnote.
+/// macOS keys a grant to the exact binary it was given to, and both
+/// `brew upgrade` and a terminal app's auto-update produce a different binary,
+/// so the entry already in the list stops applying — while its switch keeps
+/// looking enabled. Someone who only reads "enable it in System Settings"
+/// looks at a switch that is on, concludes the server is broken, and is right
+/// to. This has cost this project two debugging sessions already.
 #[must_use]
 pub const fn explain(permission: Permission) -> &'static str {
     match permission {
@@ -96,12 +104,18 @@ pub const fn explain(permission: Permission) -> &'static str {
             "Open System Settings → Privacy & Security → Screen & System Audio Recording, \
              enable the app you launched this server from (Terminal, iTerm, or the binary \
              itself), then restart the server. A binary started from a terminal inherits \
-             that terminal's permissions."
+             that terminal's permissions. If you have just upgraded the server or that \
+             terminal app, the entry already in the list is stale even though its switch \
+             still looks enabled: remove it with the minus button, add the current one \
+             again, and restart the server."
         }
         Permission::Accessibility => {
             "Open System Settings → Privacy & Security → Accessibility, enable the app you \
              launched this server from (Terminal, iTerm, or the binary itself), then restart \
-             the server. Without this, injected events are silently discarded."
+             the server. Without this, injected events are silently discarded. If you have \
+             just upgraded the server or that terminal app, the entry already in the list is \
+             stale even though its switch still looks enabled: remove it with the minus \
+             button, add the current one again, and restart the server."
         }
     }
 }
@@ -144,6 +158,31 @@ mod tests {
             assert!(
                 explanation.contains("restart"),
                 "{permission:?} must say a restart is needed — TCC changes do not apply live"
+            );
+        }
+    }
+
+    /// F-110.14: the instruction has to cover the case that actually bites —
+    /// an entry that is in the list, looks enabled, and no longer applies.
+    #[test]
+    fn f110_14_instructions_cover_a_stale_entry_after_an_upgrade() {
+        for permission in [Permission::ScreenRecording, Permission::Accessibility] {
+            let explanation = explain(permission);
+            assert!(
+                explanation.contains("upgraded"),
+                "{permission:?} must name the upgrade as the cause: {explanation}"
+            );
+            assert!(
+                explanation.contains("stale"),
+                "{permission:?} must say the existing entry is stale: {explanation}"
+            );
+            assert!(
+                explanation.contains("looks enabled"),
+                "{permission:?} must warn that the switch lies: {explanation}"
+            );
+            assert!(
+                explanation.contains("minus button"),
+                "{permission:?} must say how to remove it: {explanation}"
             );
         }
     }
