@@ -225,9 +225,9 @@ Lista braków zgłoszona przez właściciela 2026-10-12, z przypisaniem:
 |---|---|---|
 | Środkowy przycisk myszy nie działa | **ADR-0014** (2026-10-12, Proposed) — fork IronRDP, Etap 1 z ADR-0011 | pierwsze w kolejce, czeka na approve ADR-0014 |
 | Brak dźwięku | F-103 (Fala 7) — spec do napisania | po środkowym przycisku |
-| Instalacja przez Homebrew | F-110 + F-106 + F-109 (Fala 5) — specy do napisania | — |
+| Instalacja przez Homebrew | F-110 (Draft 2026-10-12) + F-106 + F-109 (Fala 5) | F-110 czeka na approve; trzy pytania w §6 speca |
 | Ikonka w pasku menu z włącznikiem serwera | **F-111** — nowy spec do napisania, zależy od F-106 i F-109 | — |
-| Strona projektu (GitHub Pages) | F-110 (dokumentacja i dystrybucja) | najtańsze, niezależne |
+| Strona projektu (GitHub Pages) | F-110.11 (Draft 2026-10-12) | najtańsze, niezależne |
 | Przegląd aktualizacji pakietów | `screencapturekit` 8.0.1 → 11.0.0 i `toml` 0.9 → 1.1 wymagają ADR (ADR-0002 §Ryzyko); patche robione na bieżąco | 2026-10-12: zrobione rcgen, thiserror, clap, async-trait |
 
 ---
@@ -240,7 +240,7 @@ Fala, po której instalacja nie wymaga toolchaina Rusta w głowie użytkownika.
 |---|---|
 | F-106 | Bundle `.app`, `Info.plist`, własna tożsamość TCC, podpis |
 | F-109 | Usługa launchd (LaunchAgent) + podkomendy CLI: `install`, `uninstall`, `status` |
-| F-110 | Dystrybucja i dokumentacja: README, licencje, `SECURITY.md`, tap Homebrew, donacje |
+| F-110 | Dystrybucja i dokumentacja: README, licencje, `SECURITY.md`, tap Homebrew, GitHub Pages, donacje — **spec napisany 2026-10-12, Draft** (`F-110-dystrybucja.md`) |
 
 **Dwa fakty o macOS, które kształtują tę falę:**
 
@@ -379,3 +379,22 @@ w tej aktualizacji.
 - `SSLKEYLOGFILE=/tmp/rdp-keys.log` + Wireshark — deszyfrowanie TLS działa,
   bo `TlsIdentityCtx::make_acceptor()` włącza `rustls::KeyLogFile` (ADR-0004).
 - `IRONRDP_LOG=trace` — logi wewnętrzne silnika protokołu.
+
+---
+
+## Uzupełnienie 2026-10-12 — co ustalił spec F-110
+
+Hipoteza z §Fala 5 pkt 2 („lokalnie wygenerowany certyfikat self-signed daje
+stabilny DR") **nie została jeszcze sprawdzona**, ale F-110 §3 dokłada do niej
+pomiar, który zawęża problem: nasza binarka jest podpisana ad-hoc i między
+dwoma buildami tego samego kodu zmienia się **nie tylko jej cdhash, ale i sam
+`Identifier` podpisu** (`mac_rdp_server-7139bc4f053fe608` vs
+`mac_rdp_server-b7ab3a30d18fac95`). Bez jawnego `codesign` nie ma czego
+stabilizować, więc eksperyment z F-106 trzeba robić na podpisie nadanym
+osobnym krokiem budowania, nie na tym, co zostawia rustc.
+
+Druga rzecz, która wyszła przy pisaniu F-110 i nie należy do żadnej fali:
+repozytorium jest **publiczne**, bez README, bez plików licencji i bez
+`SECURITY.md`, przy serwerze, który nie ma uwierzytelniania. F-110.8–F-110.10
+to zamykają, ale nie zależą od niczego z Fali 5 — kandydat do wyciągnięcia
+przed kolejkę (pytanie 2 w §6 speca F-110).
