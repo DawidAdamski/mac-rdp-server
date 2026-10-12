@@ -185,10 +185,30 @@ Przekierowanie połowy grafu nie działa: craty forku zależą od siebie przez
 `path`, więc crates.io i git dałyby dwie niekompatybilne kopie `ironrdp-pdu`.
 Pin jest po rewizji, nigdy po gałęzi.
 
-**Wynik:** `cargo fmt --check`, `cargo clippy --all-targets -D warnings`
+**Wynik u nas:** `cargo fmt --check`, `cargo clippy --all-targets -D warnings`
 i `cargo test --all-targets` zielone — 154 testy jednostkowe, `architecture` 2,
 `rdp_pixels` 4 (w tym F-004.20, który padał na masterze), `suppress_output` 2,
-`tls_handshake` 1.
+`tls_handshake` 1, `wire_input` 1.
+
+**Wynik w forku — i dwie rzeczy, które nie są zielone, choć nie z naszej winy.**
+Testy cratów, których dotykają łatki, przechodzą (`ironrdp-acceptor` 2,
+`ironrdp-server` 10, `ironrdp-testsuite-core` 45 w module `server::`).
+Natomiast `cargo test --workspace`, czyli komenda z CI upstreamu, **nie
+dobiega do końca na tej maszynie**, z dwóch powodów sprawdzonych na gołej bazie
+`11a0810c`, przed naszymi commitami:
+
+1. `libopus_sys` (zależność `ironrdp-rdpsnd-native`, dźwięk) wymaga `cmake`,
+   którego nie ma w systemie. Nic wspólnego z naszym kodem; dla F-103 (dźwięk)
+   `cmake` i tak będzie potrzebny.
+2. `ironrdp-pdu`, test `basic_output::bitmap::rdp6::tests::failures_handled_gracefully`
+   **pada identycznie na commicie `11a0810c`**, więc jest upstreamowy, nie nasz.
+   Jest to snapshot `expect!` z pełną ścieżką typu w komunikacie błędu, a my
+   stoimy na rustc 1.99.0 przy `rust-version = "1.89"` w cracie — snapshot
+   dryfuje z toolchainem. Uruchamia się tylko przy unifikacji feature'u `alloc`
+   z innym pakietem w tym samym wywołaniu, dlatego `-p ironrdp-pdu --lib`
+   w izolacji daje 372 testy i zielono, a w paczce 374 i jeden na czerwono.
+   Przy PR-ze do upstreamu warto o tym wspomnieć, ale naprawianie cudzego
+   snapshotu nie wchodzi do naszych łatek.
 
 ### Co zostaje otwarte
 
