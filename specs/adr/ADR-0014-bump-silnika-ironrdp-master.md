@@ -59,12 +59,51 @@ pierwsza aktualizacja przychodzi jako `(0, 0, 639, 478)`, czyli o **jeden
 wiersz za mało** przy pulpicie 640×480, a potem pięć razy ten sam prostokąt
 `(256, 256, 383, 383)`. Na 0.13.0 ten test jest zielony.
 
-Master ma w tym miejscu nowy kod: `encoder/mod.rs:333-410` dzieli prostokąty
-różnic pod limit `max_request_size` (`split_diff`, „splits by height first,
-then by width"), czego 0.13.0 nie robiło. **Przyczyna nierozstrzygnięta** —
-albo regresja upstreamu w tym dzieleniu, albo zmiana kontraktu
-`BitmapUpdate`, której nie dopełniamy. Bez rozstrzygnięcia nie wolno tego
-wziąć: F-004.20 to jedyny test, który łapie piksele na drucie (ADR-0006).
+### Śledztwo w sprawie brakującego wiersza (2026-10-12, zlecone przez właściciela)
+
+**Pomiar porównawczy.** Ten sam test, ta sama geometria (640×480, stride
+2624 B = 2560 + 64 B wyrównania), dwa drzewa roboty:
+
+| Wersja | Pierwsza aktualizacja (prostokąt inkluzywny) | Wiersze | Test |
+|---|---|---|---|
+| 0.13.0 (gałąź `probe/baseline-013`) | `(0, 0, 639, 479)` | 480 | zielony |
+| master `e4143f2` (gałąź `probe/ironrdp-master`) | `(0, 0, 639, 478)` | **479** | **czerwony** |
+
+Pozostałe sześć prostokątów (regiony licznika) jest w obu przebiegach
+identycznych. Ginie więc **ostatni wiersz pierwszej pełnej klatki** i zostaje
+nieodświeżony na zawsze, bo nasz enkoder uważa, że klient go ma.
+
+**To nie jest `split_diff`.** Domyślny `max_request_size` to **8 MB**
+(`server.rs:692`), a pełna klatka 640×480×4 to 1,2 MB, więc warunek
+`rect.width * rect.height * 4 <= max_request_size` jest spełniony i do
+dzielenia w ogóle nie dochodzi. Pierwsza hipoteza z pierwotnej wersji tego
+ADR-a była błędna.
+
+**Czego to też nie jest.** Porównanie plik po pliku: `encoder/bitmap.rs`
+(dzielenie na kawałki po `u16::MAX / row_len` wierszy i `chunk.len() / stride`),
+`BitmapUpdate::sub()` (koniec wycinka liczony jako
+`(height − 1) × stride + width × bpp`, czyli krótszy o wyrównanie ostatniego
+wiersza), `NoneHandler` (Surface Bits) oraz rdzeń `bitmap_diffs` są
+**bajtowo identyczne** w 0.13.0 i na masterze. Wyścig jest więc w kodzie,
+który się zmienił: `ironrdp-graphics` (`rdp6/bitmap_stream/encoder.rs`, `rle.rs`)
+albo w kliencie `ironrdp-session` (`image.rs`, `fast_path.rs`), albo w warstwie
+`ironrdp-pdu`.
+
+**Czego nie udało się zrobić.** Rozdzielenie stron (serwer z mastera, klient
+testowy z crates.io) **nie kompiluje się**: `ironrdp-pdu` z mastera jest
+niezgodny z `ironrdp-graphics` 0.9.0 i `ironrdp-connector` 0.10.0
+(`not_enough_bytes_err` ma inną arność, `ConnectionRequest` ma nowe pole).
+Bez instrumentacji lokalnego klona nie da się powiedzieć, czy wiersz gubi
+koder, czy dekoder.
+
+**Wniosek dla decyzji.** Dla ścieżki z forkiem to jest bez znaczenia: fork
+wychodzi z **taga 0.13.0**, gdzie test jest zielony, a przenosimy wyłącznie
+mapowanie przycisku w `handler.rs` — nie dotykamy kodera ani grafiki. Błąd
+zostaje po stronie upstreamu i jest **czwartym** argumentem, żeby mastera nie
+brać. Zgłaszamy go issue z gotowym repro (pulpit 640×480, stride
+z wyrównaniem, ścieżka Surface Bits / Bitmap bez kodeków) przy okazji PR-ów
+z forku. F-004.20 to jedyny nasz test, który łapie piksele na drucie
+(ADR-0006), więc jego czerwień jest wiążąca.
 
 ## Decyzja (propozycja)
 
