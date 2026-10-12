@@ -54,13 +54,15 @@ tabela na kilkaset wpisów zależna od układu i zasługuje na własną iteracj�
   Left/Right/Middle → `CGMouseButton` + odpowiedni `CGEventType`
   (`{Left,Right,Other}MouseDown`/`Up`). Button4/Button5 → `OtherMouseDown/Up`
   z numerem przycisku w polu `MOUSE_EVENT_BUTTON_NUMBER`.
-  **Znany brak (ADR-0007):** środkowy przycisk (`Middle`) jest zmapowany
-  poprawnie w naszym kodzie, ale **nie działa end-to-end**, bo IronRDP 0.13.0
-  gubi `PTRFLAGS_BUTTON3` w `From<MousePdu>` (dekoduje go jako `Move`) i nie ma
-  publicznego haka na surowy PDU. Zdarzenie nigdy nie dociera do naszej
-  konwersji. Odłożone do własnej implementacji pointer-PDU albo naprawy
-  upstreamu; kod środkowego przycisku zostaje i zadziała bez zmian, gdy tylko
-  zdarzenie zacznie docierać.
+  **Brak usunięty 2026-10-12 (ADR-0014).** Do tej daty środkowy przycisk był
+  zmapowany poprawnie u nas, ale nie działał end-to-end: `ironrdp-server`
+  0.13.0 z crates.io gubił `PTRFLAGS_BUTTON3` w `From<MousePdu>` (dekodował go
+  jako `Move`), a publicznego haka na surowy PDU nie ma — zdarzenie nigdy nie
+  docierało do naszej konwersji (ADR-0007, teraz Superseded). Silnik pochodzi
+  dziś z naszego forka, w którym ta ścieżka jest naprawiona. Nasz kod nie
+  zmienił się ani o linię; doszedł test
+  `session::convert::tests::f003_7_a_middle_button_pdu_arrives_as_the_middle_button`,
+  który startuje od `MousePdu` z wiru i pada, gdyby fork kiedyś stracił łatkę.
 - **F-003.8** (MUST) Serwer MUSI utrzymywać **stan wciśniętych przycisków**,
   bo `MouseMoved` vs `MouseDragged` zależy od tego stanu, a klient wysyła
   ruch i przyciski osobnymi zdarzeniami.
@@ -193,8 +195,8 @@ Sprawdzane ręcznie prawdziwym klientem.
    (kliknięcie w róg trafia w róg, nie w środek — dowód poprawnej konwersji
    piksele→punkty).
 3. **AC-3** Lewy i prawy przycisk działają: klik, podwójny klik, menu
-   kontekstowe prawym. **Środkowy przycisk wykreślony z kryterium** — znany
-   brak ograniczony przez IronRDP 0.13.0 (ADR-0007), nie przez nasz kod.
+   kontekstowe prawym. **Środkowy przycisk wrócił do kryterium 2026-10-12**
+   (ADR-0014 zdjął ograniczenie zapisane w ADR-0007) — patrz AC-16.
 4. **AC-4** **Przeciąganie działa** — złap okno za pasek i przesuń
    (dowód, że MouseMoved przechodzi w MouseDragged wg stanu przycisku).
 5. **AC-5** Scroll działa w obu osiach, w oczekiwanym kierunku.
@@ -235,6 +237,20 @@ Testy jednostkowe (część CI, AC-11) i checklista ręczna (AC-12…AC-15):
     i nie „przykleja się” do lokalnego kursora.
 15. **AC-15** Skróty z AC-7 (Cmd+C/V, Cmd+Tab na Macu przez klienta) działają
     bez zmian — reset ich nie zepsuł.
+
+**Uzupełnienie 2026-10-12 — środkowy przycisk (F-003.7, ADR-0014).**
+
+16. **AC-16** **Klik rolką działa end-to-end.** Z prawdziwego klienta kliknij
+    rolką:
+    - w Safari/Chrome w link ⇒ otwiera się w nowej karcie;
+    - w karcie przeglądarki ⇒ karta się zamyka;
+    - w Terminalu/iTermie po zaznaczeniu tekstu ⇒ wkleja zaznaczenie
+      (X11-owe „primary selection” działa w iTermie, jeśli włączone; jeśli nie,
+      wystarczą dwa pierwsze).
+    Przewijanie rolką działa dalej i **nie** jest brane za klik (AC-5).
+    Sprawdzić przynajmniej jednym klientem z rodziny mstsc i jednym z rodziny
+    FreeRDP/Windows App — oba idą ścieżką `MousePdu`, ale wysyłają różne
+    kombinacje flag.
 
 ## 6. Poza zakresem
 
@@ -316,3 +332,14 @@ z MS-RDPBCGR).
 
 **Verified (2026-09-18, właściciel):** F-003.22–F-003.26 — AC-11…AC-15 spełnione
 (wyniki wyżej).
+
+**Uzupełnienie 2026-10-12 — środkowy przycisk (F-003.7).** Silnik pochodzi od
+tej daty z naszego forka IronRDP (ADR-0014, rewizja
+`ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e`), w którym `From<MousePdu>`
+rozpoznaje `PTRFLAGS_BUTTON3`. Nasz kod wstrzykiwania i konwersji nie zmienił
+się; doszedł jeden test pokrywający ścieżkę od PDU z drutu
+(`session::convert::tests::f003_7_a_middle_button_pdu_arrives_as_the_middle_button`)
+oraz cztery testy w samym forku
+(`server::mouse::*` w `ironrdp-testsuite-core`). ADR-0007 → Superseded.
+**AC-3 i AC-16 czekają na test ręczny właściciela** — dopóki go nie ma,
+środkowy przycisk jest „Implemented”, nie „Verified”.

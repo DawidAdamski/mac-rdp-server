@@ -105,7 +105,7 @@ z wyrównaniem, ścieżka Surface Bits / Bitmap bez kodeków) przy okazji PR-ów
 z forku. F-004.20 to jedyny nasz test, który łapie piksele na drucie
 (ADR-0006), więc jego czerwień jest wiążąca.
 
-## Decyzja (propozycja)
+## Decyzja
 
 **Nie pinujemy mastera.** Zamiast tego **fork z ADR-0011 wchodzi w Etap 1
 teraz**, gałęzią od taga `0.13.0`, z trzema patchami w tej kolejności:
@@ -146,3 +146,66 @@ Oba patche idą też jako PR-y do upstreamu; jeśli zostaną wydane, fork znika.
    w miejscu, gdzie protokół ma jawną flagę.
 4. **Nic nie robić, zostawić ADR-0007 jako znany brak.** Odrzucone decyzją
    właściciela 2026-10-12 (środkowy przycisk na liście braków).
+
+## Realizacja (2026-10-12)
+
+**Fork:** <https://github.com/DawidAdamski/IronRDP> — publiczny, konto
+`DawidAdamski`, zgoda właściciela z 2026-10-12. Gałąź
+`mac-rdp-server/0.13.0-patches`.
+
+**Punkt bazowy:** commit `11a0810c` („chore(release): prepare for publishing
+(#1364)"). Sprawdzone, że tagi `ironrdp-server-v0.13.0`,
+`ironrdp-acceptor-v0.10.0`, `ironrdp-pdu-v0.9.0` i `ironrdp-graphics-v0.9.0`
+wskazują **ten sam** commit, a wersje cratów w drzewie zgadzają się co do jednej
+z naszym `Cargo.lock` (łącznie z `ironrdp-core` 0.2.1 i `ironrdp-connector`
+0.10.0). Fork startuje więc dokładnie od tego, co mieliśmy z crates.io.
+
+| Commit | Co | Test |
+|---|---|---|
+| `963c20bb` | `From<MousePdu>`: gałąź `MIDDLE_BUTTON_OR_WHEEL` → `MiddlePressed`/`MiddleReleased`, **za** gałęzią koła, żeby obrót rolki nie stał się klikiem | 4 testy `server::mouse::*` w `ironrdp-testsuite-core` |
+| `ac4cd7db` | `connection.rs`: w stanie `CapabilitiesWaitConfirm` przy `reactivation` poprawnie zdekodowany PDU inny niż Confirm Active jest **porzucany**, a nie kończy połączenia | 2 testy `connection::tests::*` w `ironrdp-acceptor` |
+
+**Bez zmiany API.** Łatka 1 nie dodaje ani nie usuwa żadnego wariantu —
+`MouseEvent::MiddlePressed` istniał w 0.13.0 i był już produkowany przez ścieżki
+`MouseRelPdu` i `ainput`; brakowało go wyłącznie w `From<MousePdu>`. Dlatego
+w `src/` nie zmieniła się ani jedna linia poza testem.
+
+**Testy w forku musiały trafić w konkretne miejsca.** `ironrdp-server`
+i `ironrdp-acceptor` mają `[lib] test = false`, a CI upstreamu woła
+`cargo test --workspace` — testy jednostkowe w tych bibliotekach nie
+uruchamiają się w ogóle. Dlatego test myszy leży w `ironrdp-testsuite-core`
+(upstreamowe miejsce na testy integracyjne, `ironrdp-server` jest tam już
+dev-zależnością), a test akceptora musiał zostać wewnątrz craty (sięga po
+prywatne pola `Acceptor`), więc łatka 2 zdejmuje przy okazji `test = false`
+z `ironrdp-acceptor`. Sprawdzone, że bez poprawki test reaktywacji **pada**.
+
+**U nas:** `Cargo.toml` dostał `[patch.crates-io]` na **wszystkie** 18 cratów
+`ironrdp-*`, każdy z pełnym `rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e"`.
+Przekierowanie połowy grafu nie działa: craty forku zależą od siebie przez
+`path`, więc crates.io i git dałyby dwie niekompatybilne kopie `ironrdp-pdu`.
+Pin jest po rewizji, nigdy po gałęzi.
+
+**Wynik:** `cargo fmt --check`, `cargo clippy --all-targets -D warnings`
+i `cargo test --all-targets` zielone — 154 testy jednostkowe, `architecture` 2,
+`rdp_pixels` 4 (w tym F-004.20, który padał na masterze), `suppress_output` 2,
+`tls_handshake` 1.
+
+### Co zostaje otwarte
+
+1. **PR-y do upstreamu** — obie łatki są napisane pod zgłoszenie (opis przyczyny,
+   odwołania do MS-RDPBCGR, testy). Czekają na osobną zgodę właściciela.
+2. **Issue o zgubionym wierszu** na masterze — repro gotowe (640×480, stride
+   z wyrównaniem, Surface Bits bez kodeków). Też do zgłoszenia.
+3. **Trzeci błąd, znaleziony przy okazji łatki 1, niezgłoszony i niełatany:**
+   `From<MouseXPdu>` mapuje `PTRXFLAGS_BUTTON1`/`BUTTON2` na **lewy i prawy**
+   przycisk, a MS-RDPBCGR 2.2.8.1.1.3.1.1.4 mówi, że to przyciski boczne
+   („also referred to as button 4/5"). Klient, który wyśle „wstecz", dostanie
+   kliknięcie lewym — to gorsze niż brak funkcji. Master to naprawia
+   (`MouseButton::X1`/`X2`). **Poza zakresem zatwierdzonym w tym ADR-ze**
+   (łatka 1 = wyłącznie `From<MousePdu>`), więc wymaga decyzji właściciela:
+   dopisać jako łatkę 1b czy zostawić upstreamowi. Nasza strona jest gotowa —
+   `convert.rs` mapuje `Button4/Button5` na `Back`/`Forward`.
+4. **Rebase przy każdym wydaniu upstreamu** — koszt przewidziany w ADR-0011.
+5. **F-008.7v2** zostaje jak jest. Łatka 2 usuwa *przyczynę* odstępstwa, ale
+   powrót do odświeżania przez `Resize` to osobna zmiana speca, nie efekt
+   uboczny bumpa zależności.

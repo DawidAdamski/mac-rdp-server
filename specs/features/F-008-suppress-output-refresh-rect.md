@@ -471,3 +471,33 @@ enkodera, nie integracyjny.
 
 **Do ponownego testu ręcznego:** AC-3…AC-9 (pełna checklista), bo zmienił się
 mechanizm odświeżania.
+
+### Wariant 3 zrealizowany w forku (2026-10-12, ADR-0014)
+
+Odłożony wyżej wariant 3 („poprawka w forku IronRDP") **wszedł** razem z łatką
+na środkowy przycisk — bo skoro fork i tak powstaje, drugi powód jest już
+opłacony. `ironrdp-acceptor` w rewizji `ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e`
+w stanie `CapabilitiesWaitConfirm` przy `reactivation` porzuca poprawnie
+zdekodowany PDU, który nie jest `ClientConfirmActive`, zamiast kończyć
+połączenie — symetrycznie do dwóch gałęzi obok, które od zawsze porzucały PDU
+niedekodowalne. Na pierwszym połączeniu błąd zostaje bez zmian. Dwa testy
+jednostkowe w akceptorze; bez poprawki ten od reaktywacji pada.
+
+**Co to zmienia, a czego nie.** Przyczyna rozłączeń z §6 znika: klient może
+dosłać Refresh Rect i Suppress Output w okno reaktywacji i nic się nie stanie.
+**F-008.7v2 zostaje jednak bez zmian** — odświeżanie nadal idzie bez
+`Deactivate All`. Powrót do `DisplayUpdate::Resize` (i tym samym domknięcie
+odstępstwa wobec Appendix A <38> dla klienta, który porzucił obraz) to osobna
+zmiana wymagania, nie efekt uboczny podmiany zależności: wymaga nowego wpisu
+w specu i zgody właściciela. Dziś mamy działające wznowienie **i** sprawny
+akceptor; dopiero gdyby się okazało, że któryś klient czyści obraz w trakcie
+przerwy, warto tę zmianę rozważyć.
+
+Porzucony PDU jest tracony, nie odkładany: Refresh Rect i tak jest zbędny
+(odmalowujemy po wznowieniu sami), a Suppress Output każdy obserwowany klient
+wysyła ponownie. Odkładanie oznaczałoby kolejkę stanu wejścia w akceptorze,
+czego on dziś nie robi.
+
+**Do przetestowania ręcznie:** AC-5 z bramki C — ten sam klient z rodziny
+FreeRDP/Windows App, kilka cykli zmiany rozmiaru okna i minimalizacji.
+Oczekiwanie: w logu nie ma `expected client confirm active` ani rozłączenia.

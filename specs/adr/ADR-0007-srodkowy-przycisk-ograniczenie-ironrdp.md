@@ -1,6 +1,7 @@
 # ADR-0007: Środkowy przycisk myszy gubiony przez IronRDP 0.13.0 — odkładamy
 
-- **Status:** Accepted
+- **Status:** **Superseded przez [ADR-0014](ADR-0014-bump-silnika-ironrdp-master.md)**
+  (2026-10-12) — brak usunięty łatką w naszym forku IronRDP.
 - **Data:** 2026-07-27
 - **Dotyczy:** F-003 (Fala 2), F-003.7, AC-3
 - **Powiązane:** ADR-0001 (silnik IronRDP), ADR-0003 (wstrzykiwanie inputu)
@@ -114,5 +115,21 @@ wskazującym na ten ADR, żeby nie wyglądał na martwy kod.
 
 ## Do zrobienia (poza tym ADR)
 
-- Zgłosić brak obsługi `MIDDLE_BUTTON_OR_WHEEL` w `From<MousePdu>` do upstreamu
-  IronRDP (issue lub PR) — poprawka jest trywialna i przyda się wszystkim.
+- ~~Zgłosić brak obsługi `MIDDLE_BUTTON_OR_WHEEL` w `From<MousePdu>` do upstreamu
+  IronRDP (issue lub PR) — poprawka jest trywialna i przyda się wszystkim.~~
+  Poprawka napisana 2026-10-12 (commit `963c20bb` w forku); PR do upstreamu
+  czeka na osobną zgodę właściciela.
+
+## Co się zmieniło (2026-10-12)
+
+Decyzja „odkładamy" padła przy założeniu, że alternatywą jest vendorowanie albo
+fork utrzymywany **tylko** dla jednego przycisku. To założenie przestało być
+prawdziwe: F-008 §6 wykazało drugi błąd upstreamu (rozłączanie klienta przy
+reaktywacji), który i tak wymaga forku, więc koszt utrzymania jest już poniesiony
+i dzieli się na dwie łatki. Odrzucona tu alternatywa „fork repo IronRDP + patch
+przez git+rev" została wybrana w ADR-0014 i zrealizowana.
+
+Nieaktualne w świetle tego są: sekcja **Decyzja** w całości oraz zapis
+w **Konsekwencje**, że środkowy przycisk jest znanym brakiem. Reszta — analiza
+`From<MousePdu>`, brak publicznego haka na surowy PDU — opisuje stan 0.13.0
+z crates.io i zostaje prawdziwa.

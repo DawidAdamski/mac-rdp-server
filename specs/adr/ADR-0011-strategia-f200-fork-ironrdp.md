@@ -1,6 +1,7 @@
 # ADR-0011: Strategia F-200 — własny fork IronRDP zamiast stosu od zera
 
-- **Status:** Proposed
+- **Status:** Proposed; **Etap 1 wykonany 2026-10-12** (ADR-0014) — odpowiedzi
+  na wszystkie trzy otwarte pytania niżej.
 - **Data:** 2026-09-17
 - **Dotyczy:** F-200, ADR-0001 (silnik), `specs/02-ms-rdpbcgr.md` §7
 - **Powód powstania:** decyzja kierunkowa właściciela z 2026-09-17 po przeglądzie
@@ -173,16 +174,23 @@ sans-IO), to **osobna, późniejsza decyzja** — nowy ADR.
   daje kontroli. Jeżeli wydanie z poprawkami z `master` pojawi się przed
   założeniem forka, **bierzemy je jako bazę Etapu 1** zamiast gołego commita.
 
-## Otwarte pytania (do approve)
+## Otwarte pytania — rozstrzygnięte 2026-10-12 (ADR-0014)
 
-1. Konto lub organizacja, na której powstaje fork.
-2. Baza forka: `master` w chwili założenia (rekomendacja) czy tag 0.13.0?
-3. Czy Etap 1 startuje od razu, czy dopiero przy pierwszej poprawce, której
-   nie da się zrobić po naszej stronie (rekomendacja: przy pierwszej takiej
-   poprawce — dziś jest nią P-06, odmalowanie po Refresh Rect)?
+1. ~~Konto lub organizacja, na której powstaje fork.~~ **Konto `DawidAdamski`,
+   fork publiczny** (decyzja właściciela 2026-10-12):
+   <https://github.com/DawidAdamski/IronRDP>.
+2. ~~Baza forka: `master` w chwili założenia (rekomendacja) czy tag 0.13.0?~~
+   **Tag 0.13.0** (commit `11a0810c`), **wbrew rekomendacji z tego ADR-a.**
+   Powód zmierzony, nie przypuszczany: na `master` (`e4143f2`) pada F-004.20 —
+   pierwsza pełna klatka przychodzi o jeden wiersz za krótka. Pełne uzasadnienie
+   i pomiar: ADR-0014.
+3. ~~Czy Etap 1 startuje od razu…~~ **Od razu**, bo zebrały się dwie poprawki
+   naraz: środkowy przycisk (ADR-0007) i tolerancja PDU przy reaktywacji
+   (F-008 §6). Gałąź nazywa się `mac-rdp-server/0.13.0-patches`, nie
+   `mac-rdp/main` — nazwa mówi, od czego odbija.
 
 ## Dziennik synchronizacji
 
 | Data | Nasz `rev` | Upstream | Uwagi |
 |---|---|---|---|
-| — | — | — | Fork jeszcze nie istnieje |
+| 2026-10-12 | `ac4cd7db` | tag 0.13.0 (`11a0810c`) | Założenie forka. Dwie łatki: środkowy przycisk (`963c20bb`), tolerancja PDU przy reaktywacji (`ac4cd7db`). PR-y do upstreamu jeszcze niewysłane. |
