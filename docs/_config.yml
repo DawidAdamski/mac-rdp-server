@@ -1,0 +1,7 @@
+# GitHub Pages configuration (F-110.11).
+#
+# Source: Settings -> Pages -> Deploy from a branch -> main, folder /docs.
+# The pages themselves are generated — see packaging/build-docs.py.
+title: mac-rdp-server
+description: An RDP server for macOS. No authentication; read the security notes.
+theme: jekyll-theme-primer

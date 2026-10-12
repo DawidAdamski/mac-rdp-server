@@ -38,3 +38,8 @@ jobs:
 
       - name: Verify Cargo.lock is committed and up to date
         run: cargo check --locked
+
+      # F-110.11: docs/ is generated from README.md and SECURITY.md, so the
+      # site cannot be allowed to drift away from them unnoticed.
+      - name: Verify the GitHub Pages content is in step with the Markdown
+        run: python3 packaging/build-docs.py --check
