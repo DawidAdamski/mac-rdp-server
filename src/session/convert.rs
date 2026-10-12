@@ -227,6 +227,46 @@ mod tests {
         }
     }
 
+    /// F-003.7: the middle button must survive the engine's own conversion from
+    /// the wire PDU, not just ours. That is the step that was missing until the
+    /// fork (ADR-0014): `ironrdp-server` 0.13.0 as published on crates.io
+    /// decodes PTRFLAGS_BUTTON3 as a plain move, so `MiddlePressed` is never
+    /// produced and the test above can never fire in the field. This one fails
+    /// if the fork is ever rebased without the patch.
+    #[test]
+    fn f003_7_a_middle_button_pdu_arrives_as_the_middle_button() {
+        use ironrdp_pdu::input::MousePdu;
+        use ironrdp_pdu::input::mouse::PointerFlags;
+
+        let pdu = |flags, wheel| MousePdu {
+            flags,
+            number_of_wheel_rotation_units: wheel,
+            x_position: 10,
+            y_position: 20,
+        };
+        let from_wire = |flags, wheel| pointer_event(&MouseEvent::from(pdu(flags, wheel)));
+
+        assert_eq!(
+            from_wire(PointerFlags::MIDDLE_BUTTON_OR_WHEEL | PointerFlags::DOWN, 0),
+            Some(PointerEvent::Button {
+                button: MouseButton::Middle,
+                pressed: true
+            }),
+        );
+        assert_eq!(
+            from_wire(PointerFlags::MIDDLE_BUTTON_OR_WHEEL, 0),
+            Some(PointerEvent::Button {
+                button: MouseButton::Middle,
+                pressed: false
+            }),
+        );
+        assert_eq!(
+            from_wire(PointerFlags::VERTICAL_WHEEL, -120),
+            Some(PointerEvent::Scroll { dx: 0, dy: -120 }),
+            "a wheel rotation is not a middle click"
+        );
+    }
+
     #[test]
     fn scroll_events_convert() {
         assert_eq!(

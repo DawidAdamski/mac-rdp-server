@@ -43,3 +43,34 @@ x509-cert = "0.3.0"
 
 [lints.rust]
 unsafe_code = "deny"
+
+# The protocol engine comes from our fork of IronRDP, not from crates.io —
+# ADR-0014. The branch starts at the exact commit the 0.13.0 release was cut
+# from, so every crate below is byte-identical to the published one except for
+# two patches: PTRFLAGS_BUTTON3 -> middle mouse button (ADR-0007, F-003.27) and
+# tolerating queued Share Data PDUs during reactivation (F-008 §6).
+#
+# Pinned by exact `rev`, never by branch, so the build stays reproducible
+# (CLAUDE.md, "Zależności"). Every ironrdp-* crate is redirected, not just the
+# two that are patched: the fork's crates depend on each other by path, so a
+# half-redirected graph would end up with two incompatible copies of
+# ironrdp-pdu — one from git, one from crates.io.
+[patch.crates-io]
+ironrdp-acceptor = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-ainput = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-async = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-blocking = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-cliprdr = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-connector = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-core = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-displaycontrol = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-dvc = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-echo = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-error = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-graphics = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-pdu = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-rdpsnd = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-server = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-session = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-svc = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
+ironrdp-tokio = { git = "https://github.com/DawidAdamski/IronRDP.git", rev = "ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e" }
