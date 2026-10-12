@@ -1,9 +1,10 @@
 # ADR-0014 — Jak dojść do działającego środkowego przycisku myszy
 
-- **Status:** Proposed (2026-10-12)
+- **Status:** Accepted (2026-10-12, właściciel)
 - **Dotyczy:** ADR-0007 (środkowy przycisk — ograniczenie IronRDP), ADR-0001
   (wybór silnika), ADR-0011 (fork IronRDP), F-003.7, F-008 §6
-- **Decyzja właściciela:** oczekuje
+- **Decyzja właściciela:** **approve 2026-10-12** — fork (Etap 1 z ADR-0011).
+  Właściciel zlecił też rozstrzygnięcie zagadki `split_diff` z sekcji niżej.
 
 ## Kontekst
 
