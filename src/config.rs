@@ -79,6 +79,12 @@ pub struct Cli {
     /// [default: damage]
     #[arg(long, value_name = "KIND")]
     pub encoder: Option<EncoderKind>,
+
+    /// Print whether Screen Recording and Accessibility are granted, say what
+    /// to click for the ones that are not, and exit. Exits non-zero if any is
+    /// missing, so a script can gate on it. Checks only: it never prompts.
+    #[arg(long)]
+    pub check_permissions: bool,
 }
 
 /// The same keys as [`Cli`], as they appear in the TOML file.
@@ -239,6 +245,9 @@ mod tests {
             config: None,
             test_pattern: None,
             encoder: Some(EncoderKind::Full),
+            // Not a configuration key: `--check-permissions` is a mode that
+            // exits before any config is resolved (F-110.15).
+            check_permissions: false,
         };
         let file = FileConfig {
             bind_addr: Some("10.0.0.1".parse().expect("valid IP")),

@@ -21,6 +21,19 @@ use mac_rdp_server::{capture, input, perms, session, tls};
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // F-110.15: before the configuration, the certificate or the capture stack,
+    // because the question this answers is "is the server allowed to run at
+    // all" and the answer must not depend on anything else being right.
+    if cli.check_permissions {
+        let readings = perms::survey();
+        print!("{}", perms::report(&readings));
+        if !perms::all_granted(&readings) {
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     let config = Config::from_cli(&cli)?;
     init_logging(&config.log_level)?;
 

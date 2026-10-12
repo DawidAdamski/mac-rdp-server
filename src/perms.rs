@@ -120,6 +120,54 @@ pub const fn explain(permission: Permission) -> &'static str {
     }
 }
 
+/// Reads both permissions without prompting and without side effects.
+///
+/// F-110.15: `--check-permissions` answers "did my click take effect?", so it
+/// must not be the thing that causes the dialog to appear — a reading that
+/// changes what it reads is useless for that question.
+#[must_use]
+pub fn survey() -> Vec<(Permission, PermissionState)> {
+    [Permission::ScreenRecording, Permission::Accessibility]
+        .into_iter()
+        .map(|permission| (permission, check(permission)))
+        .collect()
+}
+
+/// Whether every permission in a survey is granted.
+#[must_use]
+pub fn all_granted(readings: &[(Permission, PermissionState)]) -> bool {
+    readings.iter().all(|&(_, state)| state == PermissionState::Granted)
+}
+
+/// Renders a survey for a human reading a terminal (F-110.15).
+///
+/// Pure on purpose: the formatting is the part worth testing, and it is
+/// testable without a desktop session or a single granted permission.
+#[must_use]
+pub fn report(readings: &[(Permission, PermissionState)]) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    for &(permission, state) in readings {
+        let mark = match state {
+            PermissionState::Granted => "granted",
+            PermissionState::Denied => "NOT granted",
+        };
+        // `write!` into a String cannot fail; the Result is discarded rather
+        // than unwrapped so this stays panic-free.
+        let _ = writeln!(out, "{}: {mark}", permission.name());
+        if state == PermissionState::Denied {
+            let _ = writeln!(out, "    {}", explain(permission));
+        }
+    }
+
+    if all_granted(readings) {
+        out.push_str("\nBoth permissions are in place. If capture or input still does nothing, the\n");
+        out.push_str("grant belongs to an older build: remove the entry and add it again (F-110.14).\n");
+    }
+    out
+}
+
 /// Checks a permission, prompting once if it is missing, and logs the outcome.
 ///
 /// Returns the final state so the caller can degrade rather than fail.
@@ -185,6 +233,54 @@ mod tests {
                 "{permission:?} must say how to remove it: {explanation}"
             );
         }
+    }
+
+    /// F-110.15: a denied permission prints what to click, a granted one does
+    /// not bury the reader in instructions it does not need.
+    #[test]
+    fn f110_15_the_report_names_both_permissions_and_explains_only_the_missing_one() {
+        let readings = [
+            (Permission::ScreenRecording, PermissionState::Granted),
+            (Permission::Accessibility, PermissionState::Denied),
+        ];
+        let text = report(&readings);
+
+        assert!(text.contains("Screen Recording: granted"), "{text}");
+        assert!(text.contains("Accessibility: NOT granted"), "{text}");
+        assert!(
+            text.contains(explain(Permission::Accessibility)),
+            "the denied permission must come with its instruction: {text}"
+        );
+        assert!(
+            !text.contains(explain(Permission::ScreenRecording)),
+            "the granted permission must not be explained: {text}"
+        );
+        assert!(!all_granted(&readings));
+    }
+
+    /// F-110.15: all granted and still not working is the stale-entry case,
+    /// which is precisely when someone runs this mode.
+    #[test]
+    fn f110_15_a_clean_report_still_points_at_the_stale_entry() {
+        let readings = [
+            (Permission::ScreenRecording, PermissionState::Granted),
+            (Permission::Accessibility, PermissionState::Granted),
+        ];
+        let text = report(&readings);
+
+        assert!(all_granted(&readings));
+        assert!(text.contains("Both permissions are in place"), "{text}");
+        assert!(text.contains("add it again"), "{text}");
+    }
+
+    /// F-110.15: the survey covers every permission the project needs, so a
+    /// third one cannot be added without this mode learning about it.
+    #[test]
+    fn f110_15_the_survey_reads_every_permission() {
+        let readings = survey();
+        assert_eq!(readings.len(), 2);
+        assert!(readings.iter().any(|&(p, _)| p == Permission::ScreenRecording));
+        assert!(readings.iter().any(|&(p, _)| p == Permission::Accessibility));
     }
 
     #[test]
