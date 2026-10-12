@@ -212,6 +212,26 @@ nie-loopback, jeśli uwierzytelnianie nie jest skonfigurowane.
 
 ---
 
+## Decyzja właściciela 2026-10-12 — kolejność fal
+
+Właściciel przestawił kolejność: **produkt (Fala 5) i dźwięk (Fala 7) wchodzą
+przed domknięciem weryfikacji Fali 3**, bo testy ręczne Fali 3 są odłożone.
+Reguła „jedna fala naraz" z `CLAUDE.md` jest tu świadomie zawieszona, a nie
+pominięta — ten wpis jest jej śladem.
+
+Lista braków zgłoszona przez właściciela 2026-10-12, z przypisaniem:
+
+| Brak | Gdzie trafia | Stan |
+|---|---|---|
+| Środkowy przycisk myszy nie działa | **ADR-0014** (2026-10-12, Proposed) — fork IronRDP, Etap 1 z ADR-0011 | pierwsze w kolejce, czeka na approve ADR-0014 |
+| Brak dźwięku | F-103 (Fala 7) — spec do napisania | po środkowym przycisku |
+| Instalacja przez Homebrew | F-110 + F-106 + F-109 (Fala 5) — specy do napisania | — |
+| Ikonka w pasku menu z włącznikiem serwera | **F-111** — nowy spec do napisania, zależy od F-106 i F-109 | — |
+| Strona projektu (GitHub Pages) | F-110 (dokumentacja i dystrybucja) | najtańsze, niezależne |
+| Przegląd aktualizacji pakietów | `screencapturekit` 8.0.1 → 11.0.0 i `toml` 0.9 → 1.1 wymagają ADR (ADR-0002 §Ryzyko); patche robione na bieżąco | 2026-10-12: zrobione rcgen, thiserror, clap, async-trait |
+
+---
+
 ## Fala 5 — Produkt  → specy F-106, F-109, F-110
 
 Fala, po której instalacja nie wymaga toolchaina Rusta w głowie użytkownika.
