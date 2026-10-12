@@ -60,9 +60,14 @@ tabela na kilkaset wpisów zależna od układu i zasługuje na własną iteracj�
   jako `Move`), a publicznego haka na surowy PDU nie ma — zdarzenie nigdy nie
   docierało do naszej konwersji (ADR-0007, teraz Superseded). Silnik pochodzi
   dziś z naszego forka, w którym ta ścieżka jest naprawiona. Nasz kod nie
-  zmienił się ani o linię; doszedł test
-  `session::convert::tests::f003_7_a_middle_button_pdu_arrives_as_the_middle_button`,
-  który startuje od `MousePdu` z wiru i pada, gdyby fork kiedyś stracił łatkę.
+  zmienił się ani o linię; doszły dwa testy, oba padające, gdyby fork stracił
+  łatkę: jednostkowy
+  `session::convert::tests::f003_7_a_middle_button_pdu_arrives_as_the_middle_button`
+  (start od `MousePdu`) i integracyjny `tests/wire_input.rs`, w którym
+  prawdziwy klient IronRDP łączy się po TLS i wysyła Share Data Input PDU,
+  a test czyta, co wyszło z kolejki wejścia serwera. Nic nie jest wstrzykiwane
+  w macOS — odbiornik kolejki należy do testu, więc nie trzeba żadnego
+  uprawnienia TCC i nic nie klika po pulpicie.
 - **F-003.8** (MUST) Serwer MUSI utrzymywać **stan wciśniętych przycisków**,
   bo `MouseMoved` vs `MouseDragged` zależy od tego stanu, a klient wysyła
   ruch i przyciski osobnymi zdarzeniami.
@@ -338,8 +343,17 @@ tej daty z naszego forka IronRDP (ADR-0014, rewizja
 `ac4cd7db5e09a3293ffe2cede01b41e17a78bf2e`), w którym `From<MousePdu>`
 rozpoznaje `PTRFLAGS_BUTTON3`. Nasz kod wstrzykiwania i konwersji nie zmienił
 się; doszedł jeden test pokrywający ścieżkę od PDU z drutu
-(`session::convert::tests::f003_7_a_middle_button_pdu_arrives_as_the_middle_button`)
-oraz cztery testy w samym forku
-(`server::mouse::*` w `ironrdp-testsuite-core`). ADR-0007 → Superseded.
+(`session::convert::tests::f003_7_a_middle_button_pdu_arrives_as_the_middle_button`),
+jeden integracyjny przez całą drogę po drucie (`tests/wire_input.rs`) oraz
+cztery testy w samym forku (`server::mouse::*` w `ironrdp-testsuite-core`).
+ADR-0007 → Superseded.
+
+**Dowód, że test łapie dokładnie tę regresję.** Ten sam `tests/wire_input.rs`
+uruchomiony na drzewie z zależnościami z crates.io **pada**, i pada w sposób,
+który jeden do jednego potwierdza analizę z ADR-0007: oba kliknięcia środkowym
+przychodzą jako `MoveAbsolute { x: 32, y: 64 }`, czyli pozycja z PDU, zamiast
+`Button { Middle }`. Scroll w tej samej paczce zdarzeń jest poprawny w obu
+wersjach — czyli łatka nie zamieniła obrotu rolki w klik, co przy fladze
+nazwanej „middle button **or wheel**" było realnym ryzykiem.
 **AC-3 i AC-16 czekają na test ręczny właściciela** — dopóki go nie ma,
 środkowy przycisk jest „Implemented”, nie „Verified”.
