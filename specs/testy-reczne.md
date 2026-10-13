@@ -403,10 +403,23 @@ z hasłami.** Nie włączaj go przy okazji, tylko do tego testu i na krótko.
 
 # Blok E — instalacja z Homebrew (F-110)
 
-**Robić dopiero po opublikowaniu wydania `v0.1.0` i utworzeniu tapa.** Do tego
-momentu komenda instalacji nie zadziała i to nie jest błąd.
+**Stan na 2026-10-13: wydanie `v0.1.0` jest opublikowane, a większość tego
+bloku już przeszedła** — formuła z wydania została wstawiona do lokalnego tapa
+i przeszła na niej pełny cykl: `brew audit --strict --online` → 0,
+`brew style` → 0, `brew test` → 0, instalacja w 1 sekundę, wersja zgodna
+z tagiem, `brew uninstall` bez śmieci. Szczegóły w F-110 §Status.
 
-## E-1 — Instalacja na tej maszynie (F-110 AC-1)
+**Zostały cztery punkty, których nie da się zrobić za Ciebie:** E-2 (wymaga
+drugiego Maca), E-3 (wymaga Twojej zgody na aktualizację trzech pakietów),
+E-5 (wymaga obcej osoby), E-6 (wymaga **następnego** wydania). E-1 i E-4 są
+poniżej do powtórzenia dla porządku, gdy powstanie prawdziwy tap — formuła
+będzie ta sama, zmieni się tylko źródło.
+
+## E-1 — Instalacja na tej maszynie (F-110 AC-1) — **już przeszło lokalnie**
+
+Powtórz, gdy tap będzie istniał na GitHubie. Wcześniej sprawdzone na tej samej
+formule przez lokalny tap: instalacja 1 s, 7 plików, 16 MB, `caveats` pełne,
+wersja `0.1.0`, `--check-permissions` → oba `granted`.
 
 ```sh
 brew install DawidAdamski/mac-rdp-server/mac-rdp-server
@@ -457,7 +470,13 @@ brew install --HEAD DawidAdamski/mac-rdp-server/mac-rdp-server
 - Czy zgadzasz się na aktualizację llvm/pkgconf/sqlite:
 - Co widziałem:
 
-## E-4 — Odinstalowanie (F-110 AC-5)
+## E-4 — Odinstalowanie (F-110 AC-5) — **już przeszło**
+
+Zaliczone 2026-10-13: binarka i dowiązanie znikają, katalog z certyfikatem
+zostaje nietknięty. **Uwaga przy powtarzaniu:** `brew uninstall` usunął wtedy
+automatycznie cztery osierocone zależności (`llvm@22`, `python@3.13`,
+`libnghttp3`, `libngtcp2`). Nic się przez to nie zepsuło, ale jeśli nie
+chcesz tego efektu, użyj `HOMEBREW_NO_AUTOREMOVE=1`.
 
 ```sh
 brew uninstall mac-rdp-server

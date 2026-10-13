@@ -380,16 +380,74 @@ w 41 s. Sam push odsłonił też jedną nieprawdę w opublikowanej treści: READ
 reklamował `brew install` z tapa, który nie istnieje do pierwszego wydania —
 dopisana nota o tym kieruje tymczasem na budowę ze źródeł.
 
-**Do Verified brakuje:** AC-1, AC-2, AC-4, AC-5, AC-6, AC-7 (ręczne, część
-wymaga drugiego Maca i opublikowanego wydania). AC-3 zrobione w części offline,
-AC-8 ma test jednostkowy i czeka na potwierdzenie w logu.
+**Wydanie `v0.1.0` opublikowane 2026-10-13.** Decyzja właściciela: wydanie
+przed testami ręcznymi, bo „to jest jeszcze wersja developerska to można"
+(`waves.md` §Decyzje właściciela 2026-10-13). Workflow `release.yml` przeszedł
+w pierwszym podejściu. Zmierzone na opublikowanych artefaktach:
+
+| Co | Wynik |
+|---|---|
+| Artefakty | `…-aarch64-apple-darwin.tar.gz` 5 717 578 B, `…-x86_64-apple-darwin.tar.gz` 6 323 695 B, `mac-rdp-server.rb` 5 734 B |
+| Sumy kontrolne | `shasum -a 256` obu tarballi **zgadza się co do znaku** z `sha256` w wyrenderowanej formule |
+| Architektury | `file` → `Mach-O 64-bit executable arm64` i `… x86_64` — cross-build napisany w §Ryzyka faktycznie działa |
+| Zawartość tarballa | płasko: binarka, `mac-rdp-server.toml`, `README.md`, `SECURITY.md` |
+| Binarka | `mac-rdp-server 0.1.0`, `Signature=adhoc`, `TeamIdentifier=not set` |
+| Kwarantanna | `xattr` → tylko `com.apple.provenance`, **brak `com.apple.quarantine`** |
+
+**Kryteria zamknięte 2026-10-13.** Formuła z wydania została wstawiona do
+lokalnego tapa o docelowej nazwie (układ `Formula/mac-rdp-server.rb`, jak
+w `homebrew-bsi` właściciela) i przeszedł na niej pełny cykl użytkownika:
+
+- **AC-3 — zaliczone w całości.** `brew audit --strict --online` → **0**
+  (dotąd tylko offline, bo wymaga istniejącego wydania), `brew style` → **0**,
+  `brew test` → **0**.
+- **AC-1 — zaliczone na formule z wydania.** `brew install --dry-run` zapowiada
+  **jedną** formułę i **zero** aktualizacji zależności — bo
+  `depends_on "rust" => :build` siedzi wewnątrz `head do`, więc ścieżka
+  z gotową binarką nie ciągnie build-depsów. Instalacja: **1 sekunda**, 7 plików,
+  16 MB, `caveats` wypisane w całości. `mac-rdp-server --version` → `0.1.0`,
+  zgodne z tagiem. `--check-permissions` → oba `granted`, kod 0.
+  Do powtórzenia przez **prawdziwy tap**, gdy ten powstanie — formuła będzie
+  bajt w bajt ta sama, zmieni się tylko źródło.
+- **AC-5 — zaliczone.** `brew uninstall` usuwa binarkę i dowiązanie, a katalog
+  `~/Library/Application Support/mac-rdp-server/` **zostaje nietknięty**
+  (`server-cert.pem`, `server-key.pem`, te same znaczniki czasu).
+- **AC-11 i AC-12 — zaliczone.** Notatki opublikowanego wydania zawierają treść
+  sekcji `0.1.0` z `CHANGELOG.md` **i** ostrzeżenie o uprawnieniach, bez
+  przeciekniętych definicji linków. Bramka na brak sekcji sprawdzona w obie
+  strony, lokalnie i w CI.
+- **AC-4 — część o kwarantannie zaliczona** na opublikowanym artefakcie (tabela
+  wyżej). Część „Mac, na którym nigdy nie było Rusta" wymaga drugiej maszyny.
+
+**Efekt uboczny testu, do wiadomości właściciela.** `brew uninstall`
+automatycznie usunął cztery osierocone zależności: `llvm@22` (1,6 GB),
+`python@3.13`, `libnghttp3`, `libngtcp2`. Sprawdzone po fakcie: zostały
+`python@3.12`, `python@3.14` (na który wskazuje `python3`) i aktualny `llvm`,
+a `brew missing` nie pokazuje nowych braków — jedyny wpis (`dtc` dla `krunkit`
+i `libkrun`) istniał przed testem i nie był na liście usuniętych. Tymczasowy
+tap został usunięty, lista tapów jest identyczna jak przed testem.
+
+**Błąd znaleziony przez instalację, nie przez czytanie kodu.**
+`--check-permissions` kończył komunikat numerem `(F-110.14)` — wewnętrznym
+identyfikatorem wymagania w tekście dla kogoś, kto właśnie zainstalował
+binarkę z Homebrew. Poprawione (commit `6ebd5f6`), wpisane do `CHANGELOG.md`
+jako `[Unreleased]`. Test asertował na starą frazę, czyli na brzmienie zamiast
+na sens — teraz sprawdza dwie frazy nośne instrukcji.
+
+**Do Verified brakuje:** AC-2 (`--HEAD`, wymaga zgody właściciela na
+aktualizację `llvm`/`pkgconf`/`sqlite`), AC-4 w części wymagającej Maca bez
+Rusta, AC-6 (obca osoba według README), AC-7 (wymaga **drugiego** wydania),
+AC-8 (ma test jednostkowy, czeka na potwierdzenie w logu). Checklista z
+komendami: `specs/testy-reczne.md` §Blok E.
 
 **Co wymaga osobnej zgody właściciela, bo wychodzi na zewnątrz:**
 
 1. ~~`git push`~~ — **zrobione 2026-10-13**, 54 commity, `f3beacb..dde428c`;
 2. utworzenie repozytorium tapa `DawidAdamski/homebrew-mac-rdp-server` — wciąż
-   nie istnieje, więc instrukcja instalacji z AC-1 nie zadziała;
-3. tag `v0.1.0` i opublikowanie wydania (uruchamia `release.yml`);
+   nie istnieje, więc komenda z README nie zadziała, mimo że formuła jest
+   gotowa i przetestowana; zawartość do wrzucenia jest przygotowana;
+3. ~~tag `v0.1.0` i opublikowanie wydania~~ — **zrobione 2026-10-13**,
+   <https://github.com/DawidAdamski/mac-rdp-server/releases/tag/v0.1.0>;
 4. ~~**Settings → Pages → main, katalog `/docs`**~~ — **zrobione**;
 5. ~~**Settings → Security → Private vulnerability reporting**~~ — **zrobione**;
 6. opis repozytorium, którego wciąż nie ma (`description`, `homepage`
