@@ -49,8 +49,11 @@ on its keyboard.
 
 > **ℹ️ Note**
 >
-> The Homebrew tap goes live with the first tagged release. Until then, build
-> it yourself: see [Build from source](#build-from-source).
+> The tap is not published yet, so the command below does not work for anyone
+> but the author. Until it is, take the binary straight from the
+> [latest release](https://github.com/DawidAdamski/mac-rdp-server/releases/latest)
+> — the archive holds the binary, an example configuration, and these notes —
+> or [build it yourself](#build-from-source).
 
 ```sh
 brew install DawidAdamski/mac-rdp-server/mac-rdp-server
