@@ -41,6 +41,10 @@ on its keyboard.
 
 ## Install
 
+> [!NOTE]
+> The Homebrew tap goes live with the first tagged release. Until then, build
+> it yourself: see [Build from source](#build-from-source).
+
 ```sh
 brew install DawidAdamski/mac-rdp-server/mac-rdp-server
 ```

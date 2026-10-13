@@ -20,6 +20,15 @@ BLOB = "https://github.com/DawidAdamski/mac-rdp-server/blob/main"
 
 # Relative links that work on GitHub but not on the generated site. Anything
 # pointing at a file that does not become a page is sent to GitHub instead.
+# GitHub alert markers and how they are spelled out on the site.
+ALERTS = {
+    "WARNING": "⚠️ Warning",
+    "NOTE": "ℹ️ Note",
+    "IMPORTANT": "❗ Important",
+    "TIP": "💡 Tip",
+    "CAUTION": "🛑 Caution",
+}
+
 LINKS = {
     "(SECURITY.md)": "(security.html)",
     "(README.md)": "(index.html)",
@@ -43,8 +52,11 @@ def convert(source: str, text: str, title: str) -> str:
         text = text.replace(old, new)
 
     # GitHub's alert syntax renders as a literal "[!WARNING]" line anywhere
-    # else, and the warning it carries is the one that must not be lost.
-    text = text.replace("> [!WARNING]\n", "> **⚠️ Warning**\n>\n")
+    # else, and the warning it carries is the one that must not be lost. Every
+    # kind is handled, not just the one in use today, so that adding an alert
+    # to the Markdown cannot quietly leak the marker onto the page.
+    for kind, label in ALERTS.items():
+        text = text.replace(f"> [!{kind}]\n", f"> **{label}**\n>\n")
 
     # The site shows the title from the front matter, so a repeated H1 would
     # appear twice on the page.
