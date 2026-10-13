@@ -163,7 +163,9 @@ pub fn report(readings: &[(Permission, PermissionState)]) -> String {
 
     if all_granted(readings) {
         out.push_str("\nBoth permissions are in place. If capture or input still does nothing, the\n");
-        out.push_str("grant belongs to an older build: remove the entry and add it again (F-110.14).\n");
+        out.push_str("grant belongs to an older build of the program that started the server:\n");
+        out.push_str("remove that entry with the minus button, add the current one, and start the\n");
+        out.push_str("server again.\n");
     }
     out
 }
@@ -270,7 +272,11 @@ mod tests {
 
         assert!(all_granted(&readings));
         assert!(text.contains("Both permissions are in place"), "{text}");
-        assert!(text.contains("add it again"), "{text}");
+        // The wording may change; what must survive is that a reader whose
+        // permissions all read "granted" is still told what to do when the
+        // server does nothing — remove the stale entry and re-add it.
+        assert!(text.contains("minus button"), "{text}");
+        assert!(text.contains("add the current one"), "{text}");
     }
 
     /// F-110.15: the survey covers every permission the project needs, so a

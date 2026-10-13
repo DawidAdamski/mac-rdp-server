@@ -17,7 +17,12 @@ the manifest, or one that has no section in this file.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- `--check-permissions` no longer prints an internal requirement number at the
+  reader. When both permissions read as granted it now says what to actually
+  do if the server still does nothing: remove the stale entry with the minus
+  button, add the current one, and start the server again.
 
 ## [0.1.0] — 2026-10-13
 
