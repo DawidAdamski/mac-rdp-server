@@ -227,8 +227,8 @@ Lista braków zgłoszona przez właściciela 2026-10-12, z przypisaniem:
 | Brak dźwięku | F-103 (Fala 7) — spec do napisania | po środkowym przycisku |
 | Instalacja przez Homebrew | F-110 (**Implemented 2026-10-12**) + F-106 + F-109 (Fala 5) | formuła, procedura wydania, README, licencje, `SECURITY.md`, strona — zrobione; `brew audit --strict` i `brew style` zielone. Do Verified: publikacja wydania i testy ręczne |
 | Ikonka w pasku menu z włącznikiem serwera | **F-111** — nowy spec do napisania, zależy od F-106 i F-109 | — |
-| **README, licencje, `SECURITY.md`** | F-110.8–F-110.10 — wyciągnięte **przed** resztą Fali 5 (decyzja właściciela 2026-10-12: „Wypadało by") | nie zależy od niczego; repo jest publiczne bez jednego zdania ostrzeżenia |
-| Strona projektu (GitHub Pages) | F-110.11 (Draft 2026-10-12) | najtańsze, niezależne |
+| **README, licencje, `SECURITY.md`** | F-110.8–F-110.10 — wyciągnięte **przed** resztą Fali 5 (decyzja właściciela 2026-10-12: „Wypadało by") | zrobione: **opublikowane 2026-10-13**, repo nie jest już publiczne bez ostrzeżenia |
+| Strona projektu (GitHub Pages) | F-110.11 — **żyje od 2026-10-13** pod <https://dawidadamski.github.io/mac-rdp-server/>, generowana z README | najtańsze, niezależne |
 | Przegląd aktualizacji pakietów | `screencapturekit` 8.0.1 → 11.0.0 i `toml` 0.9 → 1.1 wymagają ADR (ADR-0002 §Ryzyko); patche robione na bieżąco | 2026-10-12: zrobione rcgen, thiserror, clap, async-trait |
 
 ---
