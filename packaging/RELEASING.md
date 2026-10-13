@@ -43,6 +43,32 @@ That starts `.github/workflows/release.yml`, which:
 6. creates the GitHub Release with the two tarballs and
    `mac-rdp-server.rb` attached.
 
+## 1.5. First time only: create the tap
+
+The tap is a repository of its own, and it exists once. Everything it needs is
+in this repository, so creating it is a copy:
+
+```sh
+gh repo create DawidAdamski/homebrew-mac-rdp-server --public \
+  --description "Homebrew tap for mac-rdp-server"
+
+cd ..
+git clone https://github.com/DawidAdamski/homebrew-mac-rdp-server.git
+cd homebrew-mac-rdp-server
+mkdir -p Formula
+cp ../rdp-server-macos/packaging/homebrew/tap-README.md README.md
+gh release download v0.1.0 --repo DawidAdamski/mac-rdp-server \
+  --pattern 'mac-rdp-server.rb' --dir Formula
+git add -A && git commit -m "mac-rdp-server 0.1.0" && git push
+```
+
+The layout matches the owner's other taps (`homebrew-bsi`,
+`homebrew-floci-podman`): the formula lives in `Formula/`, and the README
+carries the install command and the warning about authentication.
+
+Afterwards, `brew install DawidAdamski/mac-rdp-server/mac-rdp-server` works
+for anyone, and every later release only replaces one file — section 2.
+
 ## 2. Update the tap
 
 The tap is a separate repository, `DawidAdamski/homebrew-mac-rdp-server`, with
@@ -76,15 +102,23 @@ And once per release, on a machine that has never had Rust on it (F-110 AC-4):
 xattr -l "$(readlink -f "$(which mac-rdp-server)")"   # must NOT list com.apple.quarantine
 ```
 
-## 4. What to put in the release notes
+## 4. Where the release notes come from
 
-One line that is not optional, because every upgrading user hits it
-(F-110.13):
+`CHANGELOG.md`, not this workflow and not a hand-written box (F-110.17). The
+section for the version being released is extracted by
+`packaging/release-notes.sh`, which also appends the one line that is not
+optional, because every upgrading user hits it (F-110.13): both permissions
+have to be granted again, and the stale entry removed with the minus button.
 
-> After upgrading, grant Screen Recording and Accessibility again. macOS ties
-> a permission to the exact binary, so the new version is a different program
-> to it. The old entry stays in the list and can still look switched on —
-> remove it with the minus button and add the current one.
+So the only thing to write before a release is the changelog section. Preview
+exactly what will be published:
+
+```sh
+packaging/release-notes.sh 0.1.0
+```
+
+A version with no section there fails the release rather than publishing an
+empty description, and CI checks both directions on every push.
 
 ## Doing it by hand, without CI
 
