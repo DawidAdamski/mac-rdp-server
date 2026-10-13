@@ -43,6 +43,13 @@ byłby gorszy od binarki odpalanej ręcznie — łatwiejszy w instalacji znaczy
 wtedy tylko „łatwiejszy do nieświadomego wystawienia". Dlatego Fala 4 idzie
 przed Falą 5 i nie ma od tego wyjątku.
 
+> **Ta zasada została później zawieszona** decyzją właściciela z 2026-10-12
+> (§„Decyzja właściciela 2026-10-12 — kolejność fal"): Fala 5 weszła przed
+> Falą 4, a 2026-10-13 serwer został **opublikowany** bez uwierzytelniania,
+> świadomie, jako wersja deweloperska. Argument powyżej się przez to nie
+> zmienił — i dlatego uwierzytelnianie wraca na wysokie miejsce w §„Decyzje
+> właściciela 2026-10-13".
+
 ---
 
 ## Fala 0 — Szkielet  → spec `F-001-skeleton.md`
@@ -209,6 +216,38 @@ odrzucona alternatywa — inaczej za pół roku ktoś to „naprawi".
 **Kryterium fali:** `mstsc` pyta o hasło **zanim** pokaże pulpit; złe hasło daje
 odmowę i wpis w logu audytowym; serwer **odmawia startu** na adresie
 nie-loopback, jeśli uwierzytelnianie nie jest skonfigurowane.
+
+---
+
+## Decyzje właściciela 2026-10-13
+
+Cztery, podjęte po opublikowaniu dokumentacji i strony:
+
+1. **Wydanie `v0.1.0` wychodzi teraz, testy ręczne potem.** Właściciel wybrał
+   tę kolejność wiedząc, że `F-008 AC-5` (zrywanie połączenia przy ponownej
+   aktywacji) nie zostało po poprawce sprawdzone żadnym klientem:
+   „To jest jeszcze wersja developerska to można". Stąd `CHANGELOG.md` mówi
+   wprost, że `0.1.0` jest wydaniem deweloperskim, i wylicza, czego nie umie.
+2. **Następna praca to F-111** — ikonka w pasku menu z włącznikiem serwera.
+   Wymaga ADR-a (Swift `NSStatusItem` vs Rust `objc2`) i według tabeli
+   zależności niżej ciągnie za sobą F-106 i F-109.
+3. **Wersjonowanie** — „Wprowadźmy też wersjonowanie jeśli jeszcze nie ma".
+   Zrobione tego samego dnia: F-110.16 i F-110.17, `CHANGELOG.md`,
+   `packaging/release-notes.sh`, bramka w `release.yml` i test w CI.
+4. **Uwierzytelnianie wraca wysoko** — „gdzieś wysoko będzie trzeba zrobić
+   autentykację". To jest powrót do pierwotnej zasady z 2026-08-07
+   (§„Kierunek"), zawieszonej 2026-10-12. Konkret: **F-101 jest pierwszym
+   specem do napisania po F-111**, a nie dalekim backlogiem. Dopóki go nie ma,
+   `--bind-addr 0.0.0.0` zostaje scenariuszem „tylko domowa sieć, tylko na
+   czas testu", a `README` i `SECURITY.md` mówią o tym w pierwszym akapicie.
+
+**Testy ręczne mają od 2026-10-13 jedno miejsce:** `specs/testy-reczne.md`.
+Zebrane są tam wszystkie 21 kryteriów, które wymagają prawdziwego klienta,
+z komendami i miejscem na odpowiedź właściciela — na jego wniosek („zrób mi
+dokument gdzie opisowo będzie napisane co trzeba zrobić. I tam dokładnie
+opiszę odpowiadając w tym dokumencie"). Checklisty w specach zostają jako
+źródło prawdy o tym, **co** trzeba sprawdzić; ten dokument jest o tym, **jak**
+i z jakim wynikiem.
 
 ---
 
