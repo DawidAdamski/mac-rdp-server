@@ -27,7 +27,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Refuse a tag that disagrees with Cargo.toml
+      # F-110.16, F-110.17: the manifest is the single source of truth for the
+      # number, and a release without a description of what changed is a bug
+      # that is cheapest to catch before publication.
+      - name: Refuse a tag that disagrees with Cargo.toml or has no changelog
         run: |
           tag="${GITHUB_REF_NAME#v}"
           manifest=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
@@ -35,6 +38,7 @@ jobs:
             echo "tag v$tag does not match Cargo.toml version $manifest" >&2
             exit 1
           fi
+          packaging/release-notes.sh "$tag" > release-notes.md
           echo "VERSION=$tag" >> "$GITHUB_ENV"
 
       - name: Build, sign and pack both architectures
@@ -73,15 +77,7 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
-            --notes-file - \
+            --notes-file release-notes.md \
             "mac-rdp-server-$VERSION-aarch64-apple-darwin.tar.gz" \
             "mac-rdp-server-$VERSION-x86_64-apple-darwin.tar.gz" \
-            mac-rdp-server.rb <<'NOTES'
-          **After upgrading, grant Screen Recording and Accessibility again.**
-          macOS ties a permission to the exact binary, so this version is a
-          different program to it. The old entry stays in the list and can
-          still look switched on — select it, remove it with the minus button,
-          add the current one, and restart the server. See
-          [SECURITY.md](SECURITY.md) before changing `--bind-addr`: this server
-          has no authentication.
-          NOTES
+            mac-rdp-server.rb

@@ -6,8 +6,18 @@ build, copy one file into the tap.
 ## 0. Before the tag
 
 - CI green on `main` (`fmt`, `clippy -D warnings`, `test`, `cargo check --locked`).
-- `version` in `Cargo.toml` bumped, and `Cargo.lock` regenerated and committed
-  (`cargo check --locked` would fail otherwise).
+- `version` in `Cargo.toml` bumped **in a commit that does nothing else**, and
+  `Cargo.lock` regenerated and committed (`cargo check --locked` would fail
+  otherwise). The manifest is the only source of truth for the number
+  (F-110.16).
+- **`CHANGELOG.md` has a section for this version** with today's date. The
+  release notes are taken from it, so a missing section stops the release
+  (F-110.17). Check it without tagging:
+
+  ```sh
+  packaging/release-notes.sh 0.1.0
+  ```
+
 - `README.md` → "What does not work yet" still honest for this version.
 - The manual acceptance criteria of whatever the release contains have actually
   been run. For wave 5 that is F-110 AC-1, AC-4, AC-7.
@@ -21,7 +31,8 @@ git push origin v0.1.0
 
 That starts `.github/workflows/release.yml`, which:
 
-1. refuses the tag if it disagrees with `version` in `Cargo.toml`;
+1. refuses the tag if it disagrees with `version` in `Cargo.toml`, or if
+   `CHANGELOG.md` has no section for it;
 2. builds `aarch64-apple-darwin` natively and `x86_64-apple-darwin`
    cross-compiled on the same runner;
 3. ad-hoc signs both binaries (`codesign --sign -`), which is what an arm64

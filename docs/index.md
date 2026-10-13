@@ -254,6 +254,13 @@ The macOS-specific parts (capture, injection, permissions) cannot be tested
 without a desktop session and the two permissions, so every spec that touches
 them carries a manual checklist in its acceptance criteria.
 
+## Versions
+
+[`CHANGELOG.md`](https://github.com/DawidAdamski/mac-rdp-server/blob/main/CHANGELOG.md) says what changed in each release, and what each
+one still cannot do. Numbering is Semantic Versioning, with the usual `0.y.z`
+caveat: **a minor release before `1.0.0` may change behaviour, configuration
+keys or the command line without a migration path.**
+
 ## How this project is built
 
 Specification first: nothing gets implemented without a numbered, approved

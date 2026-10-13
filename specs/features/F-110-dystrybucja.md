@@ -107,6 +107,23 @@ toolchaina Rusta w głowie i bez pytania autora.
   realny problem zgłaszany użytkownikom takich narzędzi: „nadałem, a nie
   działa". Jeśli F-109 (podkomendy CLI) wejdzie wcześniej, wymaganie przenosi
   się tam i ten punkt znika.
+- **F-110.16** (MUST) Projekt MUSI mieć jawną politykę wersjonowania:
+  **SemVer 2.0.0**, z zastrzeżeniem, że w serii `0.y.z` **`y` wolno łamać
+  zgodność** — i to jest seria, w której projekt jest dziś. Jedynym
+  źródłem prawdy o numerze jest `version` w `Cargo.toml`; tag to ten numer
+  z przedrostkiem `v`, a `release.yml` odrzuca tag, który się z nim nie zgadza
+  (to zachowanie istnieje od F-110.6 i tutaj zyskuje uzasadnienie zapisane
+  w specu). Numer wersji zmienia się **w osobnym commicie**, który nie robi nic
+  innego — żeby dokładnie jeden commit odpowiadał na pytanie „skąd wzięła się
+  ta wersja".
+- **F-110.17** (MUST) Repozytorium MUSI mieć `CHANGELOG.md` w formacie
+  **Keep a Changelog 1.1.0**, a treść notatek wydania MUSI być z niego brana,
+  nie wpisywana ręcznie w workflow. `release.yml` MUSI odmówić taga, dla
+  którego nie ma sekcji w `CHANGELOG.md` — z tego samego powodu, dla którego
+  odmawia taga niezgodnego z `Cargo.toml`: wydanie bez opisu zmian jest
+  błędem, który najtańszej wyłapać przed publikacją, a nie po.
+  Ostrzeżenie o ponownym nadaniu uprawnień (F-110.13) zostaje doklejane do
+  każdego wydania automatycznie, bo dotyczy każdej aktualizacji, nie jednej.
 
 ## 3. Odniesienia do dokumentacji
 
@@ -238,6 +255,13 @@ właściciela z 2026-10-12 idą **przed** resztą Fali 5.
    zgadza się z README (F-110.11).
 10. **AC-10** `SECURITY.md` i README ostrzegają o braku uwierzytelniania
     w miejscu, którego nie da się przeoczyć — nie w przypisie na końcu.
+11. **AC-11** Tag, dla którego nie ma sekcji w `CHANGELOG.md`, **nie tworzy
+    wydania** — workflow kończy się błędem z komunikatem wskazującym brakującą
+    sekcję (F-110.17). Sprawdzalne lokalnie, tym samym skryptem, który używa
+    workflow, bez tworzenia taga.
+12. **AC-12** Notatki opublikowanego wydania zawierają treść sekcji
+    `CHANGELOG.md` dla tej wersji **i** ostrzeżenie o uprawnieniach
+    (F-110.16, F-110.17).
 
 ## 5. Poza zakresem
 
@@ -304,6 +328,8 @@ Maca — spisane niżej.
 | F-110.13 | gotowe | README §„When it stops working after an update", `caveats`, notatki wydania w `release.yml` |
 | F-110.14 | gotowe | `src/perms.rs`, test `f110_14_instructions_cover_a_stale_entry_after_an_upgrade` |
 | F-110.15 | gotowe | `--check-permissions`, trzy testy `f110_15_*` |
+| F-110.16 | gotowe | polityka w `CHANGELOG.md` §Wersjonowanie, wymuszana przez `release.yml` |
+| F-110.17 | gotowe | `CHANGELOG.md`, `packaging/release-notes.sh`, test negatywny w CI |
 
 **Co zostało sprawdzone prawdziwym `brew` (2026-10-12).** Wyrenderowana formuła
 została wstawiona do lokalnego tapa i przeszła:
@@ -325,6 +351,12 @@ się zaktualizować `pkgconf` 3.0.7 → 3.0.8 (stary keg został, więc jest
 odwracalne). Pełny test instalacji przez `brew` wymaga zgody właściciela na te
 aktualizacje — stąd AC-2 zostaje otwarte, mimo że mechanizm z F-110.3 jest już
 udowodniony na poziomie `cargo`.
+
+**Uzupełnienie 2026-10-13 — wersjonowanie.** F-110.16 i F-110.17 dopisane
+i **Approved** na wniosek właściciela tego samego dnia („Wprowadźmy też
+wersjonowanie jeśli jeszcze nie ma"). Powstały przed tagiem `v0.1.0`, bo
+inaczej pierwsze wydanie wyszedłby bez jednego zdania o tym, co się w nim
+zmieniło, a notatki były wpisane na sztywno w `release.yml`.
 
 **Co zweryfikowała publikacja (2026-10-13).** Właściciel zezwolił na push
 („wypychaj byle nie bylo personalnych danych"), więc przed wypchnięciem repo

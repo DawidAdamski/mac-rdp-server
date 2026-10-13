@@ -43,3 +43,22 @@ jobs:
       # site cannot be allowed to drift away from them unnoticed.
       - name: Verify the GitHub Pages content is in step with the Markdown
         run: python3 packaging/build-docs.py --check
+
+      # F-110.17 / AC-11: the release notes come from CHANGELOG.md, and a
+      # version with no section there must stop the release rather than
+      # publish an empty description. Checked on every push, because the
+      # release workflow runs too late to be the place this is discovered.
+      - name: Verify the release notes come from the changelog
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          notes=$(packaging/release-notes.sh "$version")
+          case "$notes" in
+            *"grant Screen Recording and Accessibility again"*) ;;
+            *) echo "notes for $version lack the permission warning" >&2; exit 1 ;;
+          esac
+          if packaging/release-notes.sh 0.0.0-absent >/dev/null 2>&1; then
+            echo "a version absent from CHANGELOG.md must fail, it did not" >&2
+            exit 1
+          fi
+          echo "release notes for $version come from CHANGELOG.md"
