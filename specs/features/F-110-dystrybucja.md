@@ -299,7 +299,7 @@ Maca — spisane niżej.
 | F-110.8 | gotowe | `README.md` |
 | F-110.9 | gotowe | `LICENSE-MIT`, `LICENSE-APACHE` (tekst kanoniczny z apache.org) |
 | F-110.10 | gotowe | `SECURITY.md` |
-| F-110.11 | gotowe w repo | `docs/` + `packaging/build-docs.py`, CI biegnie z `--check`; sprawdzone, że `--check` wyłapuje rozjazd |
+| F-110.11 | gotowe i opublikowane | `docs/` + `packaging/build-docs.py`, CI biegnie z `--check`; strona żyje pod <https://dawidadamski.github.io/mac-rdp-server/> |
 | F-110.12 | **nie zrobione** | właściciel nie zdecydował o donacjach (MAY) |
 | F-110.13 | gotowe | README §„When it stops working after an update", `caveats`, notatki wydania w `release.yml` |
 | F-110.14 | gotowe | `src/perms.rs`, test `f110_14_instructions_cover_a_stale_entry_after_an_upgrade` |
@@ -326,17 +326,39 @@ odwracalne). Pełny test instalacji przez `brew` wymaga zgody właściciela na t
 aktualizacje — stąd AC-2 zostaje otwarte, mimo że mechanizm z F-110.3 jest już
 udowodniony na poziomie `cargo`.
 
+**Co zweryfikowała publikacja (2026-10-13).** Właściciel zezwolił na push
+(„wypychaj byle nie bylo personalnych danych"), więc przed wypchnięciem repo
+zostało przeskanowane: brak adresów e-mail, brak ścieżek `/Users/…`, brak
+kluczy, logów i plików binarnych w całej historii, a jedyne trafienia na
+`dawidadamski` to publiczny login GitHuba. Po pushu:
+
+- **AC-9 spełnione.** <https://dawidadamski.github.io/mac-rdp-server/> i
+  `…/security.html` zwracają HTTP 200, tytuł i nagłówki zgadzają się z README,
+  a zgodność treści pilnuje `--check` w CI. Pages: `main`, katalog `/docs`.
+- **AC-10 spełnione.** Blok ostrzeżenia o braku uwierzytelniania stoi jako
+  pierwsza treść i w README, i na stronie, i w `SECURITY.md`.
+- **Private vulnerability reporting jest włączone** — kanał, który wskazuje
+  `SECURITY.md`, działa.
+- **CI na macOS przechodzi z forkiem jako zależnością git** (7 min 27 s) —
+  pierwszy dowód, że `[patch.crates-io]` z ADR-0014 działa poza tą maszyną.
+
+Pierwszy build Pages padł (`No such file or directory … /github/workspace/docs`),
+bo Pages włączono, zanim `docs/` trafiło na origin. Kolejny, po pushu, przeszedł
+w 41 s. Sam push odsłonił też jedną nieprawdę w opublikowanej treści: README
+reklamował `brew install` z tapa, który nie istnieje do pierwszego wydania —
+dopisana nota o tym kieruje tymczasem na budowę ze źródeł.
+
 **Do Verified brakuje:** AC-1, AC-2, AC-4, AC-5, AC-6, AC-7 (ręczne, część
-wymaga drugiego Maca i opublikowanego wydania), AC-9, AC-10. AC-3 zrobione
-w części offline, AC-8 ma test jednostkowy i czeka na potwierdzenie w logu.
+wymaga drugiego Maca i opublikowanego wydania). AC-3 zrobione w części offline,
+AC-8 ma test jednostkowy i czeka na potwierdzenie w logu.
 
 **Co wymaga osobnej zgody właściciela, bo wychodzi na zewnątrz:**
 
-1. `git push` — `main` ma 50 commitów niewypchniętych, w tym cały ten spec
-   i dokumentację;
-2. utworzenie repozytorium tapa `DawidAdamski/homebrew-mac-rdp-server`;
+1. ~~`git push`~~ — **zrobione 2026-10-13**, 54 commity, `f3beacb..dde428c`;
+2. utworzenie repozytorium tapa `DawidAdamski/homebrew-mac-rdp-server` — wciąż
+   nie istnieje, więc instrukcja instalacji z AC-1 nie zadziała;
 3. tag `v0.1.0` i opublikowanie wydania (uruchamia `release.yml`);
-4. **Settings → Pages → main, katalog `/docs`** (F-110.11 bez tego nie działa);
-5. **Settings → Security → Private vulnerability reporting** — `SECURITY.md`
-   wskazuje ten kanał, więc musi być włączony;
-6. opis repozytorium, którego wciąż nie ma.
+4. ~~**Settings → Pages → main, katalog `/docs`**~~ — **zrobione**;
+5. ~~**Settings → Security → Private vulnerability reporting**~~ — **zrobione**;
+6. opis repozytorium, którego wciąż nie ma (`description`, `homepage`
+   i `topics` są puste).
