@@ -251,6 +251,38 @@ i z jakim wynikiem.
 
 ---
 
+### Pomiar 2026-10-14 — czy `NSStatusItem` działa bez bundla `.app`
+
+F-111 stał na nierozstrzygniętym pytaniu: czy element paska menu wymaga
+aplikacji w bundlu `.app`, czy wystarczy zwykła binarka CLI. Rozstrzygnięte
+eksperymentem (program w Swift, zrzuty ekranu jako dowód), nie lekturą
+dokumentacji.
+
+| Pytanie | Wynik |
+|---|---|
+| Ikonka z binarki bez bundla (`bundleIdentifier=nil`, brak `Info.plist`) | **Działa.** Widoczna na zrzucie paska; wystarczy `NSApplication.setActivationPolicy(.accessory)`, Dock zostaje czysty |
+| Menu rozwija się po kliknięciu | **Działa.** Kliknięte prawdziwym zdarzeniem HID (`CGEventPost`) w pozycję zgłoszoną przez `button.window.convertToScreen`; na zrzucie widać otwarte `Server: off / Start server / Quit ⌘Q` |
+| Ikonka, gdy proces startuje z `launchd`, a nie z terminala | **Działa.** `launchctl submit` → ten sam `windowNumber`, ta sama pozycja, widoczna na zrzucie zrobionym z zewnątrz |
+| Uprawnienia TCC pod `launchd` | **Nie dziedziczy.** `AXIsProcessTrusted=false`, `screencapture` → `could not create image from rect`. Pod `launchd` proces jest własnym podmiotem TCC, nie dzieckiem terminala |
+
+Wnioski dla specyfikacji:
+
+1. **F-111 nie zależy od F-106.** Bundel `.app` nie jest potrzebny do ikonki
+   w pasku menu, więc wiersz „zależy od F-106 i F-109” w tabeli wyżej jest
+   nieaktualny.
+2. **F-109 (launchd) zależy od F-106 albo od stabilnej ścieżki.** Serwer
+   wystartowany z `launchd` musi dostać **własne** wpisy w Screen Recording
+   i Accessibility — wpisy terminala go nie obejmują. Przy instalacji
+   z Homebrew ścieżka zawiera numer wersji
+   (`Cellar/mac-rdp-server/0.1.0/bin/...`), więc każdy `brew upgrade`
+   unieważnia te wpisy: to jest dokładnie problem z F-110.14 i z yabai #1968.
+3. Pułapka pomiarowa warta zapisania: `statusItem.isVisible` zwracało `true`
+   i element miał już numer okna, **zanim** pasek się przerysował — zrzut
+   zrobiony natychmiast po starcie nie pokazał ikonki, a zrobiony cztery
+   sekundy później pokazał. API nie jest tu dowodem, zrzut ekranu jest.
+
+---
+
 ## Decyzja właściciela 2026-10-12 — kolejność fal
 
 Właściciel przestawił kolejność: **produkt (Fala 5) i dźwięk (Fala 7) wchodzą
@@ -265,7 +297,7 @@ Lista braków zgłoszona przez właściciela 2026-10-12, z przypisaniem:
 | Środkowy przycisk myszy nie działa | **ADR-0014** (2026-10-12, Proposed) — fork IronRDP, Etap 1 z ADR-0011 | pierwsze w kolejce, czeka na approve ADR-0014 |
 | Brak dźwięku | F-103 (Fala 7) — spec do napisania | po środkowym przycisku |
 | Instalacja przez Homebrew | F-110 (**Implemented 2026-10-12**) + F-106 + F-109 (Fala 5) | formuła, procedura wydania, README, licencje, `SECURITY.md`, strona — zrobione; `brew audit --strict` i `brew style` zielone. Do Verified: publikacja wydania i testy ręczne |
-| Ikonka w pasku menu z włącznikiem serwera | **F-111** — nowy spec do napisania, zależy od F-106 i F-109 | — |
+| Ikonka w pasku menu z włącznikiem serwera | **F-111** — nowy spec do napisania; pomiar 2026-10-14 (wyżej) pokazał, że **nie zależy od F-106** — bundel `.app` nie jest do tego potrzebny | następne w kolejce |
 | **README, licencje, `SECURITY.md`** | F-110.8–F-110.10 — wyciągnięte **przed** resztą Fali 5 (decyzja właściciela 2026-10-12: „Wypadało by") | zrobione: **opublikowane 2026-10-13**, repo nie jest już publiczne bez ostrzeżenia |
 | Strona projektu (GitHub Pages) | F-110.11 — **żyje od 2026-10-13** pod <https://dawidadamski.github.io/mac-rdp-server/>, generowana z README | najtańsze, niezależne |
 | Przegląd aktualizacji pakietów | `screencapturekit` 8.0.1 → 11.0.0 i `toml` 0.9 → 1.1 wymagają ADR (ADR-0002 §Ryzyko); patche robione na bieżąco | 2026-10-12: zrobione rcgen, thiserror, clap, async-trait |
