@@ -21,10 +21,11 @@ the manifest, or one that has no section in this file.
 
 - Updated `rustls` to 0.23.45, which fixes GHSA-2mjx-qc3c-rqvc: a TLS 1.3
   server accepted handshake messages across encryption level boundaries. The
-  server's TLS comes from `rustls` by way of `ironrdp-server`, so `0.1.0`
-  carries the affected version (0.23.42) and anyone running that build should
-  upgrade. The same update brings `aws-lc-rs` 1.18.2 and `rustls-webpki`
-  0.103.15 along with it.
+  server's TLS comes from `rustls` by way of `ironrdp-server`, so the released
+  `0.1.0` binaries carry the affected version (0.23.42). The fix reaches a
+  download only in the next release; until then, building from `main` is the
+  way to get it. The same update brings `aws-lc-rs` 1.18.2, `aws-lc-sys`
+  0.46.0 and `rustls-webpki` 0.103.15 along with it, which 0.23.45 requires.
 
 ### Changed
 
