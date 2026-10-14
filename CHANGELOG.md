@@ -17,15 +17,20 @@ the manifest, or one that has no section in this file.
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-10-14
+
+A patch release with one reason: the TLS fix below. Nothing about how the
+program works changed.
+
 ### Security
 
 - Updated `rustls` to 0.23.45, which fixes GHSA-2mjx-qc3c-rqvc: a TLS 1.3
   server accepted handshake messages across encryption level boundaries. The
-  server's TLS comes from `rustls` by way of `ironrdp-server`, so the released
-  `0.1.0` binaries carry the affected version (0.23.42). The fix reaches a
-  download only in the next release; until then, building from `main` is the
-  way to get it. The same update brings `aws-lc-rs` 1.18.2, `aws-lc-sys`
-  0.46.0 and `rustls-webpki` 0.103.15 along with it, which 0.23.45 requires.
+  server's TLS comes from `rustls` by way of `ironrdp-server`, so this applies
+  to the server itself and not to some unused code path. **The `0.1.0`
+  binaries carry the affected version (0.23.42); replace them with this
+  release.** The same update brings `aws-lc-rs` 1.18.2, `aws-lc-sys` 0.46.0
+  and `rustls-webpki` 0.103.15 along with it, which 0.23.45 requires.
 
 ### Changed
 
@@ -79,5 +84,6 @@ the warnings before exposing it to anything.
   carrying two patches that are not upstream yet: the middle mouse button, and
   tolerating queued data during reactivation.
 
-[Unreleased]: https://github.com/DawidAdamski/mac-rdp-server/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/DawidAdamski/mac-rdp-server/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/DawidAdamski/mac-rdp-server/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/DawidAdamski/mac-rdp-server/releases/tag/v0.1.0
