@@ -57,14 +57,20 @@ git clone https://github.com/DawidAdamski/homebrew-mac-rdp-server.git
 cd homebrew-mac-rdp-server
 mkdir -p Formula
 cp ../rdp-server-macos/packaging/homebrew/tap-README.md README.md
-gh release download v0.1.0 --repo DawidAdamski/mac-rdp-server \
+V=$(gh release view --repo DawidAdamski/mac-rdp-server --json tagName --jq .tagName)
+gh release download "$V" --repo DawidAdamski/mac-rdp-server \
   --pattern 'mac-rdp-server.rb' --dir Formula
-git add -A && git commit -m "mac-rdp-server 0.1.0" && git push
+git add -A && git commit -m "mac-rdp-server ${V#v}" && git push
 ```
 
 The layout matches the owner's other taps (`homebrew-bsi`,
 `homebrew-floci-podman`): the formula lives in `Formula/`, and the README
 carries the install command and the warning about authentication.
+
+`gh release view` without a tag returns the newest release, so the tap is
+created from the current formula rather than from whichever version this
+document was written against — which matters when the older one is the reason
+a newer one exists.
 
 Afterwards, `brew install DawidAdamski/mac-rdp-server/mac-rdp-server` works
 for anyone, and every later release only replaces one file — section 2.
@@ -75,10 +81,11 @@ The tap is a separate repository, `DawidAdamski/homebrew-mac-rdp-server`, with
 one file in it: `Formula/mac-rdp-server.rb`.
 
 ```sh
-gh release download v0.1.0 --repo DawidAdamski/mac-rdp-server --pattern 'mac-rdp-server.rb' --dir /tmp
+V=$(gh release view --repo DawidAdamski/mac-rdp-server --json tagName --jq .tagName)
+gh release download "$V" --repo DawidAdamski/mac-rdp-server --pattern 'mac-rdp-server.rb' --dir /tmp
 cd ../homebrew-mac-rdp-server
 cp /tmp/mac-rdp-server.rb Formula/mac-rdp-server.rb
-git commit -am "mac-rdp-server 0.1.0" && git push
+git commit -am "mac-rdp-server ${V#v}" && git push
 ```
 
 The rendered file carries a "GENERATED" header: the source of truth is
