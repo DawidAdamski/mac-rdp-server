@@ -41,13 +41,6 @@ on its keyboard.
 
 ## Install
 
-> [!NOTE]
-> The tap is not published yet, so the command below does not work for anyone
-> but the author. Until it is, take the binary straight from the
-> [latest release](https://github.com/DawidAdamski/mac-rdp-server/releases/latest)
-> — the archive holds the binary, an example configuration, and these notes —
-> or [build it yourself](#build-from-source).
-
 ```sh
 brew install DawidAdamski/mac-rdp-server/mac-rdp-server
 ```
@@ -58,6 +51,11 @@ Or, spelled out:
 brew tap DawidAdamski/mac-rdp-server
 brew install mac-rdp-server
 ```
+
+Or without Homebrew: the
+[latest release](https://github.com/DawidAdamski/mac-rdp-server/releases/latest)
+holds a flat archive with the binary, an example configuration and these
+notes. You can also [build it yourself](#build-from-source).
 
 Then grant the two permissions below — the server will not capture anything or
 inject anything until you do.

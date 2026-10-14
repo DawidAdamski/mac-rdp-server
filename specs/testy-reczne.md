@@ -421,9 +421,11 @@ E-5 (wymaga obcej osoby) — plus połowa E-6, niżej. E-1 i E-4 są poniżej do
 powtórzenia dla porządku, gdy powstanie prawdziwy tap — formuła będzie ta
 sama, zmieni się tylko źródło.
 
-## E-1 — Instalacja na tej maszynie (F-110 AC-1) — **już przeszło lokalnie**
+## E-1 — Instalacja na tej maszynie (F-110 AC-1) — **tap już istnieje, zostaje instalacja**
 
-Powtórz, gdy tap będzie istniał na GitHubie. Wcześniej sprawdzone na tej samej
+Tap jest publiczny od 2026-10-14 i ma w sobie formułę `0.1.1`; `brew audit
+--strict --online`, `brew style` i `brew install --dry-run` przeszły na nim na
+żywo. Zostaje sama instalacja. Wcześniej sprawdzone na tej samej
 formule przez lokalny tap: instalacja 1 s, 7 plików, 16 MB, `caveats` pełne,
 wersja `0.1.0`, `--check-permissions` → oba `granted`.
 

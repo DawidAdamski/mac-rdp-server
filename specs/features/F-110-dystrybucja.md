@@ -467,6 +467,20 @@ artefaktach:
   samymi znacznikami czasu. Tym razem z `HOMEBREW_NO_AUTOREMOVE=1`, więc żadna
   osierocona zależność nie została usunięta przy okazji.
 
+**Tap jest publiczny od 2026-10-14 i sprawdzony na żywo.** Nie na kopii
+lokalnej, tylko na `brew tap DawidAdamski/mac-rdp-server`:
+
+| Co | Wynik |
+|---|---|
+| `brew info` | `stable 0.1.1, HEAD`, źródło: `homebrew-mac-rdp-server/blob/HEAD/Formula/mac-rdp-server.rb` |
+| `brew audit --strict --online` | **0** |
+| `brew style` | **0** |
+| `brew install --dry-run` | „Would install 1 formula: … 0.1.1", **zero** aktualizacji zależności |
+
+Sama instalacja zostaje dla właściciela — `specs/testy-reczne.md` E-1 — bo to
+ona domyka AC-1 na prawdziwym tapie i jest warunkiem wstępnym dla połowy AC-7
+(zgoda musi należeć do binarki z Homebrew, nie do terminala).
+
 **Do Verified brakuje:** AC-2 (`--HEAD`, wymaga zgody właściciela na
 aktualizację `llvm`/`pkgconf`/`sqlite`), AC-4 w części wymagającej Maca bez
 Rusta, AC-6 (obca osoba według README), AC-7 w części o liście w Ustawieniach
@@ -477,9 +491,14 @@ komendami: `specs/testy-reczne.md` §Blok E.
 **Co wymaga osobnej zgody właściciela, bo wychodzi na zewnątrz:**
 
 1. ~~`git push`~~ — **zrobione 2026-10-13**, 54 commity, `f3beacb..dde428c`;
-2. utworzenie repozytorium tapa `DawidAdamski/homebrew-mac-rdp-server` — wciąż
-   nie istnieje, więc komenda z README nie zadziała, mimo że formuła jest
-   gotowa i przetestowana; zawartość do wrzucenia jest przygotowana;
+2. ~~utworzenie repozytorium tapa `DawidAdamski/homebrew-mac-rdp-server`~~ —
+   **zrobione 2026-10-14 przez właściciela**,
+   <https://github.com/DawidAdamski/homebrew-mac-rdp-server>. Tap powstał
+   o 20:07, a `v0.1.1` wyszło o 21:16, więc trafiła do niego formuła dla
+   `0.1.0` — tej z podatnością. Podmieniona na `0.1.1` (commit `8dcbe08`
+   w tapie) wedle `RELEASING.md §2`. **To jest dokładnie ten błąd, przed
+   którym zabezpiecza poprawka §1.5/§2 z tego samego dnia**: procedura
+   pobierała wydanie po nazwie, a nie najnowsze;
 3. ~~tag `v0.1.0` i opublikowanie wydania~~ — **zrobione 2026-10-13**,
    <https://github.com/DawidAdamski/mac-rdp-server/releases/tag/v0.1.0>;
 4. ~~**Settings → Pages → main, katalog `/docs`**~~ — **zrobione**;
