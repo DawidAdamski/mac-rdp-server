@@ -300,7 +300,7 @@ Lista braków zgłoszona przez właściciela 2026-10-12, z przypisaniem:
 | Ikonka w pasku menu z włącznikiem serwera | **F-111** — nowy spec do napisania; pomiar 2026-10-14 (wyżej) pokazał, że **nie zależy od F-106** — bundel `.app` nie jest do tego potrzebny | następne w kolejce |
 | **README, licencje, `SECURITY.md`** | F-110.8–F-110.10 — wyciągnięte **przed** resztą Fali 5 (decyzja właściciela 2026-10-12: „Wypadało by") | zrobione: **opublikowane 2026-10-13**, repo nie jest już publiczne bez ostrzeżenia |
 | Strona projektu (GitHub Pages) | F-110.11 — **żyje od 2026-10-13** pod <https://dawidadamski.github.io/mac-rdp-server/>, generowana z README | najtańsze, niezależne |
-| Przegląd aktualizacji pakietów | `screencapturekit` 8.0.1 → 11.0.0 i `toml` 0.9 → 1.1 wymagają ADR (ADR-0002 §Ryzyko); patche robione na bieżąco | 2026-10-12: zrobione rcgen, thiserror, clap, async-trait |
+| Przegląd aktualizacji pakietów | `screencapturekit` 8.0.1 → 11.0.0 i `toml` 0.9 → 1.1 wymagają ADR (ADR-0002 §Ryzyko); patche robione na bieżąco | 2026-10-12: zrobione rcgen, thiserror, clap, async-trait. **2026-10-14: `rustls` 0.23.42 → 0.23.45** — poprawka bezpieczeństwa GHSA-2mjx-qc3c-rqvc (serwer TLS 1.3 przyjmował wiadomości handshake’u ponad granicą poziomów szyfrowania), zgłoszona przez Dependabota zaraz po upublicznieniu repo. `v0.1.0` zawiera wersję podatną |
 
 ---
 
