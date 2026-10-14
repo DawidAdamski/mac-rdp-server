@@ -382,7 +382,7 @@ dopisana nota o tym kieruje tymczasem na budowę ze źródeł.
 
 **Wydanie `v0.1.0` opublikowane 2026-10-13.** Decyzja właściciela: wydanie
 przed testami ręcznymi, bo „to jest jeszcze wersja developerska to można"
-(`waves.md` §Decyzje właściciela 2026-10-13). Workflow `release.yml` przeszedł
+(`waves.md` §Decyzje właściciela 2026-10-13 i 2026-10-14). Workflow `release.yml` przeszedł
 w pierwszym podejściu. Zmierzone na opublikowanych artefaktach:
 
 | Co | Wynik |
@@ -434,10 +434,44 @@ binarkę z Homebrew. Poprawione (commit `6ebd5f6`), wpisane do `CHANGELOG.md`
 jako `[Unreleased]`. Test asertował na starą frazę, czyli na brzmienie zamiast
 na sens — teraz sprawdza dwie frazy nośne instrukcji.
 
+**Wydanie `v0.1.1` opublikowane 2026-10-14.** Powód: `rustls` 0.23.42 zawiera
+podatność GHSA-2mjx-qc3c-rqvc (serwer TLS 1.3 przyjmował wiadomości
+handshake'u ponad granicą poziomów szyfrowania), a `rustls` wchodzi do binarki
+przez `ironrdp-server` → `tokio-rustls`, więc dotyczy serwera, a nie martwej
+ścieżki kodu. Decyzja właściciela: „z poprawką". Zmierzone na opublikowanych
+artefaktach:
+
+| Co | Wynik |
+|---|---|
+| Artefakty | `…-aarch64…tar.gz` 5 746 759 B, `…-x86_64…tar.gz` 6 336 476 B, `mac-rdp-server.rb` 5 734 B |
+| Sumy kontrolne | obie **zgadzają się co do znaku** z `sha256` w formule |
+| Binarka | `mac-rdp-server 0.1.1`, `Signature=adhoc`, `TeamIdentifier=not set`, `xattr` bez kwarantanny |
+| Czy poprawka jest w artefakcie | `strings` na binarce → `rustls-0.23.45`. Dowód z pliku, nie z `Cargo.lock` |
+| Czas buildu | 11 m 15 s wobec 10 m 55 s dla `0.1.0` — `aws-lc-sys` 0.46.0 nie spowolnił wydania zauważalnie |
+
+- **AC-7 — zaliczone w części mierzalnej, zostaje część na oczy właściciela.**
+  Drugie wydanie odblokowało to kryterium. Przebieg na lokalnym tapie:
+  instalacja `0.1.0` → dowiązanie na `Cellar/mac-rdp-server/0.1.0/bin`,
+  `CDHash=a847844db35986cb5e6b991f286c99e6e8565206`; podmiana formuły na
+  `0.1.1` → `brew upgrade` kod **0** → dowiązanie na `Cellar/.../0.1.1/bin`,
+  `CDHash=78f78c9f5f5ceadd634f7608d9bda0c8fa5d16d4`. **Ścieżka i cdhash są
+  inne, czyli tożsamość, do której macOS przypina zgodę, przestała istnieć** —
+  dokładnie to, co przewiduje F-110.13. Przy `brew upgrade` Homebrew wypisał
+  `caveats` z instrukcją o usunięciu starego wpisu, więc trafia ona do
+  użytkownika w momencie, w którym jest potrzebna, a nie tylko przy pierwszej
+  instalacji. Stary keg `brew upgrade` usunął (`kegs: 0.1.1`), więc „stary wpis
+  obok nowego" dotyczy listy w Ustawieniach, nie katalogu `Cellar`, i tę część
+  musi zobaczyć właściciel — `specs/testy-reczne.md` §Blok E.
+- **AC-5 — potwierdzone drugi raz**, na odinstalowaniu `0.1.1`: binarka i keg
+  znikają, `~/Library/Application Support/mac-rdp-server/` zostaje z tymi
+  samymi znacznikami czasu. Tym razem z `HOMEBREW_NO_AUTOREMOVE=1`, więc żadna
+  osierocona zależność nie została usunięta przy okazji.
+
 **Do Verified brakuje:** AC-2 (`--HEAD`, wymaga zgody właściciela na
 aktualizację `llvm`/`pkgconf`/`sqlite`), AC-4 w części wymagającej Maca bez
-Rusta, AC-6 (obca osoba według README), AC-7 (wymaga **drugiego** wydania),
-AC-8 (ma test jednostkowy, czeka na potwierdzenie w logu). Checklista z
+Rusta, AC-6 (obca osoba według README), AC-7 w części o liście w Ustawieniach
+(mierzalna część zaliczona wyżej na `0.1.0` → `0.1.1`), AC-8 (ma test
+jednostkowy, czeka na potwierdzenie w logu). Checklista z
 komendami: `specs/testy-reczne.md` §Blok E.
 
 **Co wymaga osobnej zgody właściciela, bo wychodzi na zewnątrz:**
@@ -450,5 +484,5 @@ komendami: `specs/testy-reczne.md` §Blok E.
    <https://github.com/DawidAdamski/mac-rdp-server/releases/tag/v0.1.0>;
 4. ~~**Settings → Pages → main, katalog `/docs`**~~ — **zrobione**;
 5. ~~**Settings → Security → Private vulnerability reporting**~~ — **zrobione**;
-6. opis repozytorium, którego wciąż nie ma (`description`, `homepage`
-   i `topics` są puste).
+6. ~~opis repozytorium (`description`, `homepage`, `topics`)~~ — **zrobione
+   2026-10-13 przez właściciela**.

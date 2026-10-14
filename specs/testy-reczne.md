@@ -409,11 +409,17 @@ i przeszła na niej pełny cykl: `brew audit --strict --online` → 0,
 `brew style` → 0, `brew test` → 0, instalacja w 1 sekundę, wersja zgodna
 z tagiem, `brew uninstall` bez śmieci. Szczegóły w F-110 §Status.
 
-**Zostały cztery punkty, których nie da się zrobić za Ciebie:** E-2 (wymaga
+**Aktualizacja 2026-10-14: wyszło `v0.1.1`** (poprawka `rustls`, patrz
+`CHANGELOG.md`), więc E-6 przestało wymagać „następnego wydania" i jego
+mierzalna część została zrobiona: `brew upgrade` z `0.1.0` na `0.1.1` kończy
+się kodem 0, a ścieżka i cdhash binarki się zmieniają. Do zobaczenia zostaje
+sama lista w Ustawieniach.
+
+**Zostały trzy punkty, których nie da się zrobić za Ciebie:** E-2 (wymaga
 drugiego Maca), E-3 (wymaga Twojej zgody na aktualizację trzech pakietów),
-E-5 (wymaga obcej osoby), E-6 (wymaga **następnego** wydania). E-1 i E-4 są
-poniżej do powtórzenia dla porządku, gdy powstanie prawdziwy tap — formuła
-będzie ta sama, zmieni się tylko źródło.
+E-5 (wymaga obcej osoby) — plus połowa E-6, niżej. E-1 i E-4 są poniżej do
+powtórzenia dla porządku, gdy powstanie prawdziwy tap — formuła będzie ta
+sama, zmieni się tylko źródło.
 
 ## E-1 — Instalacja na tej maszynie (F-110 AC-1) — **już przeszło lokalnie**
 
@@ -502,18 +508,32 @@ i poproś, żeby nadał oba uprawnienia **bez pytania Cię o nic**.
 - Wynik:
 - Gdzie się zaciął:
 
-## E-6 — Aktualizacja i stary wpis w Ustawieniach (F-110 AC-7)
+## E-6 — Aktualizacja i stary wpis w Ustawieniach (F-110 AC-7) — **połowa już przeszła**
 
-**Po co.** Przy następnym wydaniu: sprawdzenie, że to, co obiecuje
-dokumentacja, faktycznie się dzieje — stary wpis zostaje na liście i wygląda
-na włączony.
+**Co już zmierzone (2026-10-14, na lokalnym tapie).** `brew upgrade` z `0.1.0`
+na `0.1.1` kończy się kodem 0. Dowiązanie przeskakuje z
+`Cellar/mac-rdp-server/0.1.0/bin` na `.../0.1.1/bin`, a cdhash binarki zmienia
+się z `a847844d…` na `78f78c9f…` — czyli tożsamość, do której macOS przypina
+zgodę, przestaje istnieć. Homebrew wypisał przy tym `caveats` z instrukcją
+o usunięciu starego wpisu, więc trafia ona do użytkownika dokładnie wtedy,
+kiedy jest potrzebna.
 
-**Co zrobić.** Po `brew upgrade mac-rdp-server` zajrzyj do Ustawień →
-Prywatność → Nagrywanie ekranu.
+**Co zostaje dla Ciebie.** Tego, co widać na liście w Ustawieniach, nie da się
+zmierzyć z terminala. Wymaga to **nadania zgody binarce z Homebrew** (nie
+terminalowi) przed aktualizacją — więc zrób to dopiero, gdy będzie prawdziwy
+tap i gdy będziesz uruchamiał serwer jako zainstalowaną binarkę:
+
+1. `brew install DawidAdamski/mac-rdp-server/mac-rdp-server`, uruchom serwer
+   i nadaj oba uprawnienia **tej binarce**.
+2. Przy następnym wydaniu: `brew upgrade mac-rdp-server`.
+3. Ustawienia → Prywatność i bezpieczeństwo → Nagrywanie ekranu
+   i Dostępność.
 
 **ODPOWIEDŹ:**
 - Wynik:
 - Czy stary wpis został na liście:
+- Czy wyglądał na włączony:
+- Czy serwer ruszył po usunięciu starego i dodaniu nowego:
 
 ---
 
