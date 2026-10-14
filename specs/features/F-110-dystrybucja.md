@@ -461,7 +461,13 @@ artefaktach:
   użytkownika w momencie, w którym jest potrzebna, a nie tylko przy pierwszej
   instalacji. Stary keg `brew upgrade` usunął (`kegs: 0.1.1`), więc „stary wpis
   obok nowego" dotyczy listy w Ustawieniach, nie katalogu `Cellar`, i tę część
-  musi zobaczyć właściciel — `specs/testy-reczne.md` §Blok E.
+  musi zobaczyć właściciel — `specs/testy-reczne.md` §Blok E. **Uwaga z pomiaru
+  2026-10-14** (`waves.md` §Pomiar): binarka uruchomiona z terminala korzysta
+  z uprawnień terminala, a własnym podmiotem TCC staje się dopiero pod
+  `launchd`. Dopóki serwer startuje z iTerma, `brew upgrade` nie unieważnia
+  żadnej zgody, bo zgoda nie należy do binarki. Ta połowa AC-7 jest więc
+  sprawdzalna dopiero **po F-109** — co nie unieważnia F-110.13, bo ten sam
+  mechanizm wywołuje aktualizacja terminala, i to nas już trafiło dwa razy.
 - **AC-5 — potwierdzone drugi raz**, na odinstalowaniu `0.1.1`: binarka i keg
   znikają, `~/Library/Application Support/mac-rdp-server/` zostaje z tymi
   samymi znacznikami czasu. Tym razem z `HOMEBREW_NO_AUTOREMOVE=1`, więc żadna

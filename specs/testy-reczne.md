@@ -520,16 +520,25 @@ zgodę, przestaje istnieć. Homebrew wypisał przy tym `caveats` z instrukcją
 o usunięciu starego wpisu, więc trafia ona do użytkownika dokładnie wtedy,
 kiedy jest potrzebna.
 
-**Co zostaje dla Ciebie.** Tego, co widać na liście w Ustawieniach, nie da się
-zmierzyć z terminala. Wymaga to **nadania zgody binarce z Homebrew** (nie
-terminalowi) przed aktualizacją — więc zrób to dopiero, gdy będzie prawdziwy
-tap i gdy będziesz uruchamiał serwer jako zainstalowaną binarkę:
+**Co zostaje — i dlaczego jeszcze nie teraz.** Pomiar z 2026-10-14
+(`waves.md` §Pomiar) pokazał, że **binarka uruchomiona z terminala korzysta
+z uprawnień terminala**, a własnym podmiotem TCC staje się dopiero wtedy, gdy
+startuje spod `launchd` (albo z bundla `.app`). To znaczy, że dopóki
+uruchamiasz serwer z iTerma, `brew upgrade` **niczego Ci nie zepsuje** —
+zgoda należy do iTerma, nie do binarki, więc stary wpis nie ma czego
+unieważnić.
 
-1. `brew install DawidAdamski/mac-rdp-server/mac-rdp-server`, uruchom serwer
-   i nadaj oba uprawnienia **tej binarce**.
-2. Przy następnym wydaniu: `brew upgrade mac-rdp-server`.
-3. Ustawienia → Prywatność i bezpieczeństwo → Nagrywanie ekranu
-   i Dostępność.
+Czyli: połowa AC-7 dotycząca listy w Ustawieniach jest sprawdzalna dopiero
+**po F-109** (uruchamianie przez `launchd`). Wtedy przebieg jest taki:
+
+1. serwer wystartowany przez `launchd`, oba uprawnienia nadane **tej binarce**
+   (pojawi się w listach pod ścieżką z `Cellar/…/0.1.1/bin`);
+2. następne wydanie i `brew upgrade mac-rdp-server`;
+3. Ustawienia → Prywatność i bezpieczeństwo → Nagrywanie ekranu i Dostępność
+   — tam ma być stary wpis obok nowego.
+
+Do tego czasu instrukcja z F-110.13 i tak jest potrzebna, bo **ten sam problem
+wywołuje aktualizacja samego iTerma** — to już nas trafiło dwa razy.
 
 **ODPOWIEDŹ:**
 - Wynik:
