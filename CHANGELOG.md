@@ -17,6 +17,13 @@ the manifest, or one that has no section in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- The Homebrew caveat no longer shows an example configuration being copied to
+  `~/.config/mac-rdp-server.toml` and stop there, as if that path were read.
+  It is not: the file is read only when `--config` points at it, so the
+  caveat now shows that command too.
+
 ## [0.1.1] — 2026-10-14
 
 A patch release with one reason: the TLS fix below. Nothing about how the

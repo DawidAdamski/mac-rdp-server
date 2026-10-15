@@ -98,8 +98,11 @@ class MacRdpServer < Formula
       Configuration is optional; pass a TOML file with --config. The TLS
       certificate is generated on first run in
         ~/Library/Application Support/mac-rdp-server/
-      An example configuration to copy and edit:
+      An example configuration to copy and edit. There is no default
+      location: the file is read only when you point at it, so the second
+      line below is not optional.
         cp #{opt_pkgshare}/examples/mac-rdp-server.toml ~/.config/mac-rdp-server.toml
+        mac-rdp-server --config ~/.config/mac-rdp-server.toml
     EOS
   end
 
