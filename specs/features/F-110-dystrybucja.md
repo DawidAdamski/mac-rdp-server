@@ -483,9 +483,57 @@ lokalnej, tylko na `brew tap DawidAdamski/mac-rdp-server`:
 | `brew style` | **0** |
 | `brew install --dry-run` | „Would install 1 formula: … 0.1.1", **zero** aktualizacji zależności |
 
-Sama instalacja zostaje dla właściciela — `specs/testy-reczne.md` E-1 — bo to
-ona domyka AC-1 na prawdziwym tapie i jest warunkiem wstępnym dla połowy AC-7
-(zgoda musi należeć do binarki z Homebrew, nie do terminala).
+**AC-1 zaliczone na prawdziwym tapie 2026-10-15.** Instalację zrobił
+właściciel („odpaliłem z command line, zainstalowana działała"); poniższe
+zostało zmierzone na tym, co po niej zostało na dysku — nie na kopii formuły
+i nie na buildzie z `target/release`:
+
+| Co | Wynik |
+|---|---|
+| `brew list --versions` | `mac-rdp-server 0.1.1` |
+| Źródło | `full_name: dawidadamski/mac-rdp-server/mac-rdp-server`, `tap: dawidadamski/mac-rdp-server` — publiczny tap, nie lokalna kopia |
+| `which` → `readlink -f` | `/opt/homebrew/bin/mac-rdp-server` → `/opt/homebrew/Cellar/mac-rdp-server/0.1.1/bin/mac-rdp-server` |
+| `--version` | `mac-rdp-server 0.1.1`, zgodne z tagiem |
+| `poured_from_bottle` | `False` — rozpakowana binarka z wydania, nie butelka Homebrew |
+| `codesign` | `Signature=adhoc`, `TeamIdentifier=not set` |
+| `xattr` | tylko `com.apple.provenance`, **brak `com.apple.quarantine`** — tym razem na żywej instalacji, nie na pobranym tarballu |
+| `--check-permissions` | oba `granted`, kod 0 |
+| Uruchomienie | serwer startuje, wczytuje istniejący certyfikat, w logu `permission granted permission="Accessibility"` |
+
+**Korekta zdania, które stało w tym miejscu.** Było tu napisane, że instalacja
+z Homebrew „jest warunkiem wstępnym dla połowy AC-7, bo zgoda musi należeć do
+binarki z Homebrew, nie do terminala". To jest nieprawda, a pomiar
+z 2026-10-14 mówi dlaczego: binarka uruchomiona z terminala pracuje na
+uprawnieniach **terminala**, niezależnie od tego, skąd się wzięła. Dowód jest
+w tabeli wyżej — `--check-permissions` na binarce zainstalowanej tego dnia
+odpowiada `granted`, chociaż tej ścieżki nikt nigdy nie dodał do żadnej listy
+w Ustawieniach. Połowa AC-7 o liście w Ustawieniach czeka więc na F-109
+(`launchd`), a nie na instalację z Homebrew.
+
+**Co znalazło używanie, a nie czytanie (2026-10-15).** Dwie uwagi właściciela
+po pierwszym uruchomieniu zainstalowanej binarki.
+
+1. **„Musiałem dorzucić `--bind-addr 0.0.0.0`".** Samo zachowanie jest zgodne
+   ze specyfikacją — `127.0.0.1` jest domyślne świadomie (F-110.10,
+   `SECURITY.md`) — ale odsłania brak, którego dotąd nie zapisaliśmy: **tej
+   opcji nie da się zapamiętać**. `Config::from_cli` czyta plik konfiguracyjny
+   wyłącznie wtedy, gdy dostanie `--config` (`src/config.rs:162`), żadnej
+   domyślnej ścieżki nie ma. Sprawdzone pomiarem, nie wywnioskowane z kodu:
+   plik z `bind_addr = "0.0.0.0"` i `port = 33891` położony
+   w `~/.config/mac-rdp-server.toml` → serwer startuje na
+   `addr=127.0.0.1:3389`; **ten sam** plik podany przez `--config` →
+   `addr=0.0.0.0:33891`. Konsekwencja wykracza poza wygodę: **ikonka z F-111
+   i usługa z F-109 nie mają gdzie trzymać ustawień**, a przełącznik w pasku
+   menu, który zapomina wybór po restarcie, jest gorszy niż brak przełącznika.
+   Propozycja wymagania czeka na decyzję właściciela — `waves.md` §Pomiar
+   2026-10-15. Do tego czasu `caveats` formuły pokazuje nie tylko `cp`
+   przykładowego pliku, ale i komendę, która go faktycznie wczytuje, bo samo
+   skopiowanie go w ścieżkę konwencjonalną **nie robi nic**.
+2. **„Nie widziałem na pasku ikonki".** Zgodne ze stanem projektu: ikonka to
+   **F-111**, spec jeszcze nie istnieje, więc w binarce `0.1.1` nie ma po niej
+   ani linijki. README wymienia ją w tabeli „What does not work yet", a §5
+   tego specu trzyma ją jawnie poza zakresem F-110. Nie ma tu błędu do
+   naprawienia — jest następny element roadmapy.
 
 **Do Verified brakuje:** AC-2 (`--HEAD`, wymaga zgody właściciela na
 aktualizację `llvm`/`pkgconf`/`sqlite`), AC-4 w części wymagającej Maca bez

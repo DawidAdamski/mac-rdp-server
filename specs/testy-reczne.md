@@ -415,33 +415,50 @@ mierzalna część została zrobiona: `brew upgrade` z `0.1.0` na `0.1.1` kończ
 się kodem 0, a ścieżka i cdhash binarki się zmieniają. Do zobaczenia zostaje
 sama lista w Ustawieniach.
 
+**Aktualizacja 2026-10-15: E-1 zrobione.** Zainstalowałeś `0.1.1` z tapa
+i powiedziałeś, że działa; wynik zmierzony i wpisany niżej. Przy okazji
+wyszedł brak, który nie jest błędem instalacji: ustawień nie da się
+zapamiętać, bo plik konfiguracyjny jest czytany tylko przez `--config`.
+Propozycja wymagania czeka na Twoją decyzję — `waves.md` §Pomiar 2026-10-15.
+
 **Zostały trzy punkty, których nie da się zrobić za Ciebie:** E-2 (wymaga
 drugiego Maca), E-3 (wymaga Twojej zgody na aktualizację trzech pakietów),
-E-5 (wymaga obcej osoby) — plus połowa E-6, niżej. E-1 i E-4 są poniżej do
-powtórzenia dla porządku, gdy powstanie prawdziwy tap — formuła będzie ta
-sama, zmieni się tylko źródło.
+E-5 (wymaga obcej osoby) — plus połowa E-6, niżej. E-4 zostaje poniżej jako
+zapis tego, co już przeszło.
 
-## E-1 — Instalacja na tej maszynie (F-110 AC-1) — **tap już istnieje, zostaje instalacja**
+## E-1 — Instalacja na tej maszynie (F-110 AC-1) — **zrobione 2026-10-15**
 
-Tap jest publiczny od 2026-10-14 i ma w sobie formułę `0.1.1`; `brew audit
---strict --online`, `brew style` i `brew install --dry-run` przeszły na nim na
-żywo. Zostaje sama instalacja. Wcześniej sprawdzone na tej samej
-formule przez lokalny tap: instalacja 1 s, 7 plików, 16 MB, `caveats` pełne,
-wersja `0.1.0`, `--check-permissions` → oba `granted`.
+Zrobiłeś to sam („odpaliłem z command line, zainstalowana działała").
+Zmierzone po fakcie na tym, co zostało na dysku: `brew list --versions` →
+`mac-rdp-server 0.1.1`; źródło `dawidadamski/mac-rdp-server`, czyli prawdziwy
+tap, nie lokalna kopia; dowiązanie na
+`Cellar/mac-rdp-server/0.1.1/bin/mac-rdp-server`; `--version` → `0.1.1`;
+`codesign` → `adhoc`, bez `TeamIdentifier`; `xattr` bez kwarantanny;
+`--check-permissions` → oba `granted` i kod 0; serwer startuje i wczytuje
+istniejący certyfikat.
 
-```sh
-brew install DawidAdamski/mac-rdp-server/mac-rdp-server
-mac-rdp-server --version
-mac-rdp-server --check-permissions
-```
+**Przewidywanie, które stało w tym punkcie, było błędne — i to pouczająco.**
+Było napisane, że `--check-permissions` powie, że uprawnień brakuje, bo
+zgoda była nadana binarce z `target/release`, a to „inny program" dla
+macOS-a. Tak się nie stało i stać nie mogło: uprawnienie jest nadane
+**aplikacji terminalowej**, z której startujesz serwer, a nie żadnej binarce
+serwera — więc binarka z Homebrew pracuje na tej samej zgodzie co binarka
+z `target/release`. To ten sam mechanizm, który pomiar z 2026-10-14 pokazał
+na `NSStatusItem`, i to on przenosi połowę E-6 za F-109.
 
-**Co ma się stać.** Wersja zgadza się z tagiem. `--check-permissions` mówi, że
-uprawnień brakuje — bo uprawnienie było nadane binarce z `target/release`,
-a to jest **inny program** dla macOS-a. To jest oczekiwane i udokumentowane.
+**Dwie rzeczy, które przy okazji zgłosiłeś, i co z nimi:**
 
-**ODPOWIEDŹ:**
-- Wynik:
-- Co widziałem:
+- **`--bind-addr 0.0.0.0` trzeba podawać ręcznie przy każdym uruchomieniu.**
+  Domyślny `127.0.0.1` jest celowy, ale okazało się, że **nie da się tego
+  zapamiętać**: plik konfiguracyjny jest czytany tylko wtedy, gdy podasz
+  `--config`, domyślnej ścieżki nie ma. Sprawdzone pomiarem (F-110 §Status).
+  `caveats` formuły poprawione tego dnia, żeby nie sugerowało inaczej.
+  Propozycja wymagania o domyślnej ścieżce — `waves.md` §Pomiar 2026-10-15,
+  czeka na Twój approve.
+- **Brak ikonki w pasku menu.** Oczekiwane: to F-111, spec jeszcze nie
+  istnieje, więc w binarce nie ma po niej ani linijki. Następne w kolejce.
+
+**ODPOWIEDŹ:** zrobione, wynik wyżej — nic do uzupełnienia.
 
 ## E-2 — Mac bez Rusta (F-110 AC-4)
 

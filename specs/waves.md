@@ -289,6 +289,59 @@ Wnioski dla specyfikacji:
 
 ---
 
+### Pomiar 2026-10-15 — ustawień nie da się zapamiętać, a F-111 ich potrzebuje
+
+Właściciel zainstalował `0.1.1` z tapa i zgłosił dwie rzeczy: „musiałem
+dorzucić `--bind-addr 0.0.0.0`" oraz „nie widziałem na pasku ikonki". Druga
+jest zgodna ze stanem projektu (F-111 nie ma jeszcze specu). Pierwsza
+wyglądała na samą uwagę o domyślnym `127.0.0.1`, a odsłoniła brak:
+
+**Plik konfiguracyjny jest czytany wyłącznie wtedy, gdy dostanie `--config`.**
+`Config::from_cli` (`src/config.rs:161`) robi `FileConfig::load` tylko dla
+`Some(path)`, a dla `None` bierze `FileConfig::default()`. Żadnej domyślnej
+ścieżki nie ma — ani `~/.config/mac-rdp-server.toml`, ani
+`~/Library/Application Support/mac-rdp-server/`, choć ten drugi katalog
+serwer sam tworzy na certyfikat.
+
+Sprawdzone zainstalowaną binarką, nie lekturą kodu:
+
+| Przebieg | Wynik w logu startowym |
+|---|---|
+| plik `bind_addr = "0.0.0.0"`, `port = 33891` w `~/.config/mac-rdp-server.toml`, start bez flag | `addr=127.0.0.1:3389` — **plik zignorowany** |
+| ten sam plik podany przez `--config` | `addr=0.0.0.0:33891` — plik wczytany |
+
+Dlaczego to nie jest drobiazg o wygodzie:
+
+1. **F-111 bez trwałych ustawień jest kalekie.** Przełącznik „włącz serwer"
+   w pasku menu musi gdzieś zapisać, czy serwer ma wstawać, na jakim adresie
+   i na którym ekranie. Bez tego jedyną drogą zostaje przekazanie flag, czyli
+   ikonka umiałaby tylko to, co ktoś wpisał przy starcie — i zapominałaby
+   wybór po każdym restarcie.
+2. **F-109 (`launchd`) ma ten sam problem od innej strony.** Flagi musiałyby
+   wejść w `ProgramArguments` w pliku plist, czyli zmiana portu oznaczałaby
+   edycję pliku instalowanego przez formułę, nadpisywanego przy
+   `brew upgrade`.
+3. **`caveats` formuły obiecywało trochę za dużo.** Pokazywało `cp` przykładu
+   do `~/.config/mac-rdp-server.toml` i na tym kończyło, tak jak robią to
+   formuły programów, które tę ścieżkę naprawdę czytają. Poprawione tego dnia:
+   `caveats` mówi teraz wprost, że domyślnej lokalizacji nie ma, i pokazuje
+   komendę z `--config`. Do tapa trafi przy najbliższym wydaniu, bo formuła
+   w tapie jest generowana z tego repo przy `release.yml`.
+
+**Propozycja do decyzji właściciela** (nie zrobione, bo to nowe wymaganie,
+a nie poprawka w kodzie — zasada zero z `CLAUDE.md`): domyślna ścieżka pliku
+konfiguracyjnego, czytana gdy nie podano `--config`, z precedencją
+`CLI > plik wskazany > plik domyślny > wartości domyślne`. Do rozstrzygnięcia
+przy approve: **gdzie** — `~/.config/mac-rdp-server.toml` (konwencja
+unixowa, już w README i w przykładzie) czy `~/Library/Application
+Support/mac-rdp-server/config.toml` (konwencja macOS, katalog i tak istnieje);
+oraz czy **brak** pliku domyślnego jest cichy (powinien być), podczas gdy
+niepoprawny plik domyślny nadal ma być błędem, tak jak dziś przy `--config`.
+Naturalne miejsce na wymaganie to F-001 (tam żyje F-001.4 o precedencji
+konfiguracji), a warunkiem wstępnym jest dla F-111 i F-109, nie dla F-110.
+
+---
+
 ## Decyzja właściciela 2026-10-12 — kolejność fal
 
 Właściciel przestawił kolejność: **produkt (Fala 5) i dźwięk (Fala 7) wchodzą
@@ -302,8 +355,8 @@ Lista braków zgłoszona przez właściciela 2026-10-12, z przypisaniem:
 |---|---|---|
 | Środkowy przycisk myszy nie działa | **ADR-0014** (2026-10-12, Proposed) — fork IronRDP, Etap 1 z ADR-0011 | pierwsze w kolejce, czeka na approve ADR-0014 |
 | Brak dźwięku | F-103 (Fala 7) — spec do napisania | po środkowym przycisku |
-| Instalacja przez Homebrew | F-110 (**Implemented 2026-10-12**) + F-106 + F-109 (Fala 5) | formuła, procedura wydania, README, licencje, `SECURITY.md`, strona — zrobione; `brew audit --strict` i `brew style` zielone. Do Verified: publikacja wydania i testy ręczne |
-| Ikonka w pasku menu z włącznikiem serwera | **F-111** — nowy spec do napisania; pomiar 2026-10-14 (wyżej) pokazał, że **nie zależy od F-106** — bundel `.app` nie jest do tego potrzebny | następne w kolejce |
+| Instalacja przez Homebrew | F-110 (**Implemented 2026-10-12**) + F-106 + F-109 (Fala 5) | formuła, procedura wydania, README, licencje, `SECURITY.md`, strona — zrobione; `brew audit --strict` i `brew style` zielone. Tap publiczny od 2026-10-14, **AC-1 zaliczone na nim 2026-10-15** instalacją właściciela. Do Verified zostają kryteria wymagające drugiego Maca, obcej osoby i F-109 |
+| Ikonka w pasku menu z włącznikiem serwera | **F-111** — nowy spec do napisania; pomiar 2026-10-14 (wyżej) pokazał, że **nie zależy od F-106** — bundel `.app` nie jest do tego potrzebny; pomiar 2026-10-15 dorzucił warunek wstępny: trwałe ustawienia (dziś plik konfiguracyjny działa tylko przez `--config`) | następne w kolejce; właściciel potwierdził 2026-10-15, że ikonki nie widzi — bo jej nie ma |
 | **README, licencje, `SECURITY.md`** | F-110.8–F-110.10 — wyciągnięte **przed** resztą Fali 5 (decyzja właściciela 2026-10-12: „Wypadało by") | zrobione: **opublikowane 2026-10-13**, repo nie jest już publiczne bez ostrzeżenia |
 | Strona projektu (GitHub Pages) | F-110.11 — **żyje od 2026-10-13** pod <https://dawidadamski.github.io/mac-rdp-server/>, generowana z README | najtańsze, niezależne |
 | Przegląd aktualizacji pakietów | `screencapturekit` 8.0.1 → 11.0.0 i `toml` 0.9 → 1.1 wymagają ADR (ADR-0002 §Ryzyko); patche robione na bieżąco | 2026-10-12: zrobione rcgen, thiserror, clap, async-trait. **2026-10-14: `rustls` 0.23.42 → 0.23.45** — poprawka bezpieczeństwa GHSA-2mjx-qc3c-rqvc (serwer TLS 1.3 przyjmował wiadomości handshake’u ponad granicą poziomów szyfrowania), zgłoszona przez Dependabota zaraz po upublicznieniu repo. Wydane jako **`v0.1.1`** (2026-10-14, decyzja właściciela: „z poprawką”); `v0.1.0` zostało z wersją podatną |
