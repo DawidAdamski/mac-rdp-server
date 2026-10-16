@@ -33,6 +33,13 @@ TLS → handshake RDP → wysyłanie bitmap działa, zanim dołożymy cokolwiek 
 - **F-001.5** (SHOULD) `--help` POWINIEN wypisywać wszystkie opcje z opisami
   i wartościami domyślnymi.
 
+> **Uzupełnione przez F-112** (Draft, 2026-10-16). F-001.4 mówi o pliku TOML
+> **wskazanym** flagą `--config`; F-112 dokłada plik czytany domyślnie
+> z `~/.config/mac-rdp-server.toml` i rozszerza precedencję o jeden poziom:
+> *flagi > plik wskazany > plik domyślny > wartości domyślne*. Treść F-001.4
+> nie zmienia się i ten spec zostaje Verified — zmianę niesie F-112, zgodnie
+> z `CLAUDE.md` („zmiana zdania = aktualizacja speca, nigdy cichy refactor").
+
 ### TLS i certyfikat
 
 - **F-001.6** (MUST) Jeżeli `cert_path`/`key_path` nie istnieją, binarka MUSI

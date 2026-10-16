@@ -328,17 +328,43 @@ Dlaczego to nie jest drobiazg o wygodzie:
    komendę z `--config`. Do tapa trafi przy najbliższym wydaniu, bo formuła
    w tapie jest generowana z tego repo przy `release.yml`.
 
-**Propozycja do decyzji właściciela** (nie zrobione, bo to nowe wymaganie,
-a nie poprawka w kodzie — zasada zero z `CLAUDE.md`): domyślna ścieżka pliku
-konfiguracyjnego, czytana gdy nie podano `--config`, z precedencją
-`CLI > plik wskazany > plik domyślny > wartości domyślne`. Do rozstrzygnięcia
-przy approve: **gdzie** — `~/.config/mac-rdp-server.toml` (konwencja
-unixowa, już w README i w przykładzie) czy `~/Library/Application
-Support/mac-rdp-server/config.toml` (konwencja macOS, katalog i tak istnieje);
-oraz czy **brak** pliku domyślnego jest cichy (powinien być), podczas gdy
-niepoprawny plik domyślny nadal ma być błędem, tak jak dziś przy `--config`.
-Naturalne miejsce na wymaganie to F-001 (tam żyje F-001.4 o precedencji
-konfiguracji), a warunkiem wstępnym jest dla F-111 i F-109, nie dla F-110.
+**Decyzja właściciela 2026-10-16: `~/.config/mac-rdp-server.toml`** — konwencja
+unixowa, ta sama ścieżka, którą już podają README, przykładowy plik
+i `caveats` formuły. Wymaganie zostało spisane jako osobny spec
+**F-112** (Draft, czeka na approve), a nie dopisane do F-001: F-001 jest
+w statusie Verified i mieszanie w nim wymagań w różnych statusach zaciemniłoby
+jego własny zapis weryfikacji. F-001.4 dostało tylko odsyłacz.
+
+---
+
+### Pomiar 2026-10-16 — czy pasek menu da się napisać w Ruście obok tokio
+
+Pytanie, od którego zależał kształt F-111: **Swift jako osobny proces czy
+`objc2` w Ruście w jednym procesie**. Rozstrzygnięte sondą w Ruście
+(`specs/probes/f111-objc2/`), nie lekturą dokumentacji. Pełny zapis
+w **ADR-0015**; tutaj to, co warto mieć pod ręką.
+
+| Pytanie | Wynik |
+|---|---|
+| Ikonka z binarki Rusta bez bundla | **Działa.** `RDP*ON` na zrzucie prawdziwego paska, Dock czysty przy `Accessory` |
+| Klasa Objective-C zdefiniowana w Ruście jako `target`/`action` | **Działa.** `define_class!` + `sel!(toggle:)`, metoda wykonała się na głównym wątku |
+| Czy callback zmienia stan dzielony z resztą programu | **Tak.** Wspólny `Arc<AtomicBool>` zmieniony z menu i odczytany po stronie Rusta |
+| **Czy tokio żyje, gdy `NSApp.run()` trzyma główny wątek** | **Tak.** 48 tyknięć runtime'u na `ThreadId(3)`, nieprzerwanie |
+| Koszt w zależnościach | **15 nowych cratów**; feature'y tego nie zmieniają, bo `objc2-app-kit` zależy od nich bezwarunkowo. W tym drugi, równoległy zestaw bindingów do Core Foundation i Core Graphics |
+
+Dwie rzeczy warte zapamiętania poza samą decyzją:
+
+1. **Główny wątek jest pilnowany typem, nie dokumentacją.** `MainThreadMarker`
+   siedzi w sygnaturach (`NSStatusItem::button(&self, mtm)`), więc pomyłka nie
+   skompiluje się, zamiast wybuchnąć w czasie działania.
+2. **Ta sama pułapka pomiarowa co 2026-10-14.** Pozycja przycisku odczytana
+   przed `app.run()` to `x=0 y=0` — nieprawda, bo układ paska powstaje dopiero
+   po starcie pętli zdarzeń. Zrzut ekranu jest dowodem, API nie jest.
+
+Sonda **nie** sprawdziła trzech rzeczy i ADR to odnotowuje: prawdziwego
+serwera i ScreenCaptureKit obok AppKit, `Ctrl-C` po zamianie `#[tokio::main]`
+na ręcznie budowany runtime, oraz kliknięcia prawdziwym zdarzeniem myszy —
+to ostatnie zmierzyła sonda Swift 2026-10-14.
 
 ---
 
@@ -356,14 +382,14 @@ Lista braków zgłoszona przez właściciela 2026-10-12, z przypisaniem:
 | Środkowy przycisk myszy nie działa | **ADR-0014** (2026-10-12, Proposed) — fork IronRDP, Etap 1 z ADR-0011 | pierwsze w kolejce, czeka na approve ADR-0014 |
 | Brak dźwięku | F-103 (Fala 7) — spec do napisania | po środkowym przycisku |
 | Instalacja przez Homebrew | F-110 (**Implemented 2026-10-12**) + F-106 + F-109 (Fala 5) | formuła, procedura wydania, README, licencje, `SECURITY.md`, strona — zrobione; `brew audit --strict` i `brew style` zielone. Tap publiczny od 2026-10-14, **AC-1 zaliczone na nim 2026-10-15** instalacją właściciela. Do Verified zostają kryteria wymagające drugiego Maca, obcej osoby i F-109 |
-| Ikonka w pasku menu z włącznikiem serwera | **F-111** — nowy spec do napisania; pomiar 2026-10-14 (wyżej) pokazał, że **nie zależy od F-106** — bundel `.app` nie jest do tego potrzebny; pomiar 2026-10-15 dorzucił warunek wstępny: trwałe ustawienia (dziś plik konfiguracyjny działa tylko przez `--config`) | następne w kolejce; właściciel potwierdził 2026-10-15, że ikonki nie widzi — bo jej nie ma |
+| Ikonka w pasku menu z włącznikiem serwera | **F-111** — spec napisany 2026-10-16 (Draft), opiera się na **ADR-0015** (Proposed) i na **F-112** (Draft). Pomiar 2026-10-14: nie zależy od F-106. Pomiar 2026-10-16: `objc2` w Ruście, w jednym procesie z tokio | czeka na approve trzech dokumentów naraz: ADR-0015, F-112, F-111 |
 | **README, licencje, `SECURITY.md`** | F-110.8–F-110.10 — wyciągnięte **przed** resztą Fali 5 (decyzja właściciela 2026-10-12: „Wypadało by") | zrobione: **opublikowane 2026-10-13**, repo nie jest już publiczne bez ostrzeżenia |
 | Strona projektu (GitHub Pages) | F-110.11 — **żyje od 2026-10-13** pod <https://dawidadamski.github.io/mac-rdp-server/>, generowana z README | najtańsze, niezależne |
 | Przegląd aktualizacji pakietów | `screencapturekit` 8.0.1 → 11.0.0 i `toml` 0.9 → 1.1 wymagają ADR (ADR-0002 §Ryzyko); patche robione na bieżąco | 2026-10-12: zrobione rcgen, thiserror, clap, async-trait. **2026-10-14: `rustls` 0.23.42 → 0.23.45** — poprawka bezpieczeństwa GHSA-2mjx-qc3c-rqvc (serwer TLS 1.3 przyjmował wiadomości handshake’u ponad granicą poziomów szyfrowania), zgłoszona przez Dependabota zaraz po upublicznieniu repo. Wydane jako **`v0.1.1`** (2026-10-14, decyzja właściciela: „z poprawką”); `v0.1.0` zostało z wersją podatną |
 
 ---
 
-## Fala 5 — Produkt  → specy F-106, F-109, F-110
+## Fala 5 — Produkt  → specy F-106, F-109, F-110, F-111, F-112
 
 Fala, po której instalacja nie wymaga toolchaina Rusta w głowie użytkownika.
 
@@ -372,6 +398,8 @@ Fala, po której instalacja nie wymaga toolchaina Rusta w głowie użytkownika.
 | F-106 | Bundle `.app`, `Info.plist`, własna tożsamość TCC, podpis |
 | F-109 | Usługa launchd (LaunchAgent) + podkomendy CLI: `install`, `uninstall`, `status` |
 | F-110 | Dystrybucja i dokumentacja: README, licencje, `SECURITY.md`, tap Homebrew, GitHub Pages, donacje — **Implemented 2026-10-12** (`F-110-dystrybucja.md`) |
+| F-111 | Ikonka w pasku menu z włącznikiem serwera — **Draft 2026-10-16** (`F-111-ikonka-w-pasku.md`), opiera się na **ADR-0015** (Proposed) |
+| F-112 | Domyślny plik konfiguracyjny `~/.config/mac-rdp-server.toml` — **Draft 2026-10-16** (`F-112-domyslna-konfiguracja.md`), warunek wstępny dla F-111 |
 
 **Dwa fakty o macOS, które kształtują tę falę:**
 
