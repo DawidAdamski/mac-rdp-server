@@ -8,3 +8,7 @@
 
 # macOS Finder metadata.
 .DS_Store
+
+# Sondy w specs/probes/ nie są częścią builda, ale dają się zbudować w miejscu.
+/specs/probes/*/target
+/specs/probes/*/Cargo.lock

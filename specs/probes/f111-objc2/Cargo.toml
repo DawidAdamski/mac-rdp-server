@@ -1,0 +1,14 @@
+[package]
+name = "f111probe"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = [
+    "NSApplication", "NSStatusBar", "NSStatusItem", "NSStatusBarButton",
+    "NSMenu", "NSMenuItem", "NSButton", "NSControl", "NSResponder",
+    "NSView", "NSWindow", "NSRunningApplication",
+] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSGeometry"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
