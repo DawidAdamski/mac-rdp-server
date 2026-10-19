@@ -627,6 +627,114 @@ strumienia. Dopóki nie ma pomiaru, w którym milczenie faktycznie występuje, t
 jest **kwestia otwarta, a nie wymaganie** — zgodnie z tym, jak potraktowaliśmy
 `CGDisplayRegisterReconfigurationCallback` w §8.
 
+## 8e. Pomiar w boju (2026-10-19) — ekran zasypia pod żywą sesją
+
+Właściciel testował poprawioną binarkę z `mstsc` i `MAC_RDP_LOG=debug` i zgłosił
+najpierw: „miałem parę razy taką sytuację, że się zblokowało, ale jak
+odczekałem, to wróciło — tak jakby czasami nie nadążał stream", a potem
+„zawiesił się" i „o, wróciło". Log z tej sesji rozstrzyga oba zgłoszenia.
+
+### Hipoteza „stream nie nadąża" — OBALONA pomiarem
+
+Z podłączonym `mstsc`, w stanie ustalonym, przyrosty na każde 10 s:
+
+| Licznik | Przyrost |
+|---|---|
+| `received` | +295 |
+| `delivered` | **+295** |
+| `coalesced` | **+0** |
+
+Jeden do jednego, przez minuty. `damage stats`: **15 pełnych klatek na 19538**,
+`saved_pct=99`, `bytes_sent=3,9 GB` wobec `bytes_if_full=576 GB`. Potok nie ma
+problemu z przepustowością: enkoder ma trzydziestokrotny zapas
+(`specs/probes/f004-encoder-throughput/`), przechwytywanie trzyma 29,5 fps,
+a odbiorca konsumuje każdą klatkę.
+
+**Wcześniejsza konkluzja z `waves.md` §Pomiar 2026-10-19b, że kandydatem jest
+ścieżka wysyłki, była błędna** i jest tam poprawiona. Wysyłka nadąża.
+
+### Co naprawdę zamroziło obraz
+
+| Czas | Zdarzenie |
+|---|---|
+| 12:47:38 | `capture stream stopped unexpectedly; recovering reason=SCStream error (No capture source provided): Failed to find any displays or windows to capture` |
+| 12:47:38 → 12:58:28 | **130 prób** odzyskania, co 5 s, wszystkie `display 5 is not currently available` |
+| 12:49:02 | klient zminimalizowany → suppress output |
+| 12:58:06 | okno przywrócone → `paused_ms=544112`, **`skipped_frames=0`** |
+| 12:58:28 | `capture recovered display=5` |
+
+**Przechwytywanie było martwe 10 minut 50 sekund i wróciło samo.** To jest
+dokładnie to, po co powstała iteracja 1d: na 0.1.1 zostałoby martwe do końca
+procesu. Pacing logu z F-007.21 też się sprawdził w boju — głośno raz na 30 s
+z `suppressed_since_last=5`, resztę na `debug`; 130 prób nie zalało logu.
+
+`skipped_frames=0` przy dziewięciominutowej pauzie jest tu najmocniejszym
+dowodem: nie było **czego** pomijać, bo capture nie żył. Gdyby chodziło
+o suppress output, licznik pokazałby setki klatek — jak przy pierwszej pauzie
+tego dnia (`paused_ms=4709 skipped_frames=139`, okno zminimalizowane na
+chwilę; właściciel to potwierdził, i to jest **poprawne** zachowanie
+protokołu, nie błąd).
+
+Watchdog zastoju (F-007.14) nie wyzwolił się ani razu — zgłosił to delegat.
+Czyli martwy punkt z §8c („strumień, który milknie całkowicie") **nadal nie
+został sprawdzony pomiarem** i zostaje kwestią otwartą.
+
+### Dlaczego ekran zasnął pod żywą sesją
+
+`displaysleep` na tej maszynie to **10 minut** na zasilaniu. Klient był
+podłączony od 12:37, ekran padł 12:47:38 — po około dziesięciu minutach.
+Serwer **nie trzyma żadnej asercji**: `pmset -g assertions` pokazuje
+`PreventUserIdleDisplaySleep 0`.
+
+To jest sprzeczność w samym pomyśle: serwer pulpitu zdalnego, któremu ekran
+zasypia pod spodem, przestaje działać dokładnie wtedy, gdy ktoś go używa
+zdalnie i nie dotyka maszyny lokalnie. Odzyskiwanie nie pomoże, bo **nie da
+się przechwycić ekranu, którego nie ma** — i to widać w 130 nieudanych
+próbach.
+
+**Kwestia otwarta, nierozstrzygnięta pomiarem:** czy wstrzykiwanie zdarzeń
+przez `CGEvent` zeruje licznik bezczynności (`HIDIdleTime`). Jeśli tak, sen
+łapie tylko sesje faktycznie bezczynne; jeśli nie, łapie każdą dłuższą niż
+`displaysleep`. Dla poniższych wymagań to nie ma znaczenia — asercja działa
+w obu przypadkach — ale wpływa na to, jak częsty jest ten objaw.
+
+### Druga luka, odsłonięta przy okazji
+
+Przez te 10 minut klient pokazywał **ostatnią zamrożoną klatkę**, bez żadnej
+informacji. `Placeholder` ma dziś dwa warianty — `PermissionDenied`
+i `WaitingForFirstFrame` (`src/capture/placeholder.rs:18`) — i żadnego na
+„przechwytywanie chwilowo niedostępne". Właściciel nie miał skąd wiedzieć, czy
+czekać, czy restartować. To jest ta sama zasada, co w F-007.11: cicha porażka
+jest gorsza niż widoczna.
+
+### Zmiana speca — iteracja 1e (**Draft** 2026-10-19, czeka na approve)
+
+- **F-007.26** (MUST) Dopóki podłączony jest co najmniej jeden klient, serwer
+  MUSI nie pozwalać ekranowi zasnąć z bezczynności, i MUSI zwolnić to
+  zabezpieczenie, gdy odłączy się ostatni klient. Bez tego sesja dłuższa niż
+  `displaysleep` sama się psuje — zmierzone: 10 min 50 s martwego
+  przechwytywania przy podłączonym kliencie.
+- **F-007.27** (MUST) Gdy przechwytywanie jest niedostępne, klient MUSI
+  zobaczyć placeholder mówiący, co się stało, a nie ostatnią klatkę.
+  Dotyczy też odzyskiwania trwającego dłużej niż kilka sekund.
+- **F-007.28** (SHOULD) Mechanizm z F-007.26 NIE POWINIEN przeżywać procesu
+  ani zostawiać niczego po sobie po nieczystym zakończeniu.
+- **F-007.29** (MUST) Stan tego zabezpieczenia (założone, zwolnione) MUSI być
+  widoczny w logu — inaczej „czy ekran mógł zasnąć" znów będzie się
+  rozstrzygało eksperymentem.
+
+**Kryterium akceptacji dla tej iteracji: AC-9** — klient podłączony dłużej niż
+`displaysleep` (tu 10 minut), bez dotykania Maca lokalnie: ekran nie zasypia,
+`pmset -g assertions` pokazuje trzymaną asercję, obraz żyje przez cały czas,
+a po rozłączeniu klienta asercja znika.
+
+**Rozważane rozwiązania, do rozstrzygnięcia przy approve.** `caffeinate -d -w <pid>`
+jako proces potomny: zero `unsafe`, zero nowych zależności, narzędzie z systemu,
+a `-w` wiąże jego życie z naszym. Albo `IOPMAssertionCreateWithName` przez FFI:
+bez procesu potomnego, ale drugie miejsce z `unsafe` po tym, które dołożył
+ADR-0016. Sprawdzone 2026-10-19, że `caffeinate -d` faktycznie trzyma
+`PreventUserIdleDisplaySleep` (widoczne w `pmset -g assertions`).
+
 ## 9. Status
 
 **Approved** (2026-07-27) — z zakresem pierwszej iteracji poniżej.
@@ -729,3 +837,16 @@ wisi na zawsze. Nowe wymagania F-007.19 … F-007.25 i nowe AC-8 mają
 i 295 → 1235) — pełne domknięcie wymaga ręcznego C-1 z podłączonym klientem,
 bo F-007.25 nie jest zmierzone. **AC-8 zaliczone.** AC-6 niesprawdzone.
 AC-4 domyka się dopiero z F-006.
+
+**Iteracja 1e: Draft** (2026-10-19) — F-007.26 … F-007.29, z pomiaru w boju
+(§8e): **ekran Maca zasypia pod żywą sesją RDP** i przechwytywanie umiera na
+10 minut 50 sekund, bo nie da się przechwycić ekranu, którego nie ma. Serwer
+nie trzyma żadnej asercji. Przy okazji odsłonięta druga luka: w czasie awarii
+klient widzi ostatnią zamrożoną klatkę, bo `Placeholder` nie ma wariantu
+„przechwytywanie niedostępne”. Czeka na approve właściciela.
+
+**Co §8e potwierdziło o iteracji 1d:** odzyskiwanie zadziałało w boju —
+130 prób, powrót sam z siebie, log nie zalany (głośno raz na 30 s). Przy tym
+F-007.25 **wciąż** nie jest zweryfikowane: klient był podłączony, ale przez
+całą awarię miał zminimalizowane okno i suppress output, więc „obraz wraca bez
+rozłączania klienta” nadal nie zostało zobaczone na żywym obrazie.

@@ -63,14 +63,16 @@ Zmierzone ogniwa potoku:
 | Enkoder (diff + regiony) | najgorzej 1,05 ms na klatkę | nie |
 | Wysyłka (silnik protokołu → klient) | **niezmierzone** | kandydat |
 
-Zostaje wysyłka, i jest po temu konkretny powód: pełna klatka to **28 MB**
-nieskompresowanych. Enkoder przechodzi na pełną klatkę, kiedy zmieni się
-większość ekranu (Cmd+Tab, przewijanie, wideo). Jedna taka klatka w sieci to
-rzędy wielkości więcej czasu niż 33 ms, a `watch` nie kolejkuje — nadmiarowe
-klatki się **gubią** (licznik `coalesced`). Objaw „zablokowało się i po chwili
-wróciło" pasuje do tego dokładnie.
+Podejrzewałem wysyłkę, bo pełna klatka to 28 MB nieskompresowanych. **Pomiar
+z prawdziwym `mstsc` tę hipotezę obalił** (F-007 §8e): `delivered` rośnie
+dokładnie tak jak `received` (+295 na 10 s), `coalesced` stoi, a pełnych
+klatek jest 15 na 19538 przy `saved_pct=99`. Żadne ogniwo potoku nie jest
+wąskim gardłem.
 
-Tego nie dało się tu domknąć, bo **FreeRDP nie łączy się z tym serwerem**
-(patrz `specs/waves.md` §Pomiar 2026-10-19b). Potrzebny jest pomiar z `mstsc`
-i `MAC_RDP_LOG=debug`: `delivered` kontra `coalesced` oraz linie
-`sending a full frame`.
+Prawdziwą przyczyną zgłoszonego objawu było coś innego: **ekran Maca zasypia
+pod żywą sesją RDP**, a przechwytywanie ekranu, którego nie ma, nie jest
+możliwe. Wymagania F-007.26 … F-007.29 czekają na approve.
+
+Ta sonda zachowuje więc wartość jako dowód negatywny — enkodera można wykluczyć
+bez zgadywania — i jako punkt odniesienia, gdy dojdzie kompresja: dziś
+ogłaszamy `BitmapCodecs([])`, choć `mstsc` oferuje NSCodec i RemoteFX.

@@ -132,7 +132,7 @@ osobną, pełną iterację, nie „przy okazji".
 
 | Spec | Temat | Stan |
 |---|---|---|
-| F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Iteracja 1d zrobiona 2026-10-19**: AC-3 i AC-8 zaliczone automatycznie (295 → 1234 klatek, `capture recovered` 4 s po wybudzeniu), na `screencapturekit` 11.0.0 wg ADR-0016. Zostaje ręczny C-1 z klientem — F-007.25 niezmierzone. AC-6 niesprawdzone, AC-4 czeka na F-006 |
+| F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Iteracja 1d zrobiona 2026-10-19** i potwierdzona w boju (§8e: 130 prób, powrót sam po 10 m 50 s). **Iteracja 1e Draft**: F-007.26 … F-007.29 — ekran Maca zasypia pod żywą sesją RDP, serwer nie trzyma asercji; plus brak placeholdera na niedostępne przechwytywanie. F-007.25 nadal niezmierzone. AC-6 niesprawdzone, AC-4 czeka na F-006 |
 | F-004 | Damage tracking — wysyłanie tylko zmienionych regionów | **Implemented** — czeka na pomiar i weryfikację ręczną |
 | F-005 | Kursor — `DisplayUpdate::{RGBAPointer, CachedPointer, DefaultPointer}` | **Draft** (2026-08-24) — czeka na approve; approve = zgoda na ADR-0010 |
 | **ADR-0013** (MS-RDPBCGR §6 pkt 1) | Pomiar D-1 + korekta opisu ścieżki obrazu z ADR-0006: Surface Bits `codecID = 0` zamiast RDP 6.0 (P-01) | **Proposed** (2026-09-17) — pomiar D-1 u właściciela; przed F-005 |
@@ -438,24 +438,25 @@ Co zmierzone, ogniwo po ogniwie:
 | Enkoder | najgorzej **1,05 ms** na klatkę przeciw budżetowi 33,3 ms — sonda `specs/probes/f004-encoder-throughput/` | nie |
 | Wysyłka do klienta | **niezmierzona** | **kandydat** |
 
-Zostaje wysyłka, i jest konkretny powód: pełna klatka to **28 MB**
-nieskompresowanych, a enkoder przechodzi na pełną klatkę, gdy zmieni się
-większość ekranu (Cmd+Tab, przewijanie). `watch` nie kolejkuje, więc nadmiar
-klatek się **gubi** — i to widać w liczniku `coalesced`. „Zablokowało się
-i wróciło" pasuje do tego dokładnie.
+**Postawiłem wtedy hipotezę, że kandydatem jest ścieżka wysyłki. Pomiar
+z prawdziwym klientem ją obalił tego samego dnia** — patrz F-007 §8e.
+Z podłączonym `mstsc` `delivered` rośnie dokładnie tak jak `received`
+(+295 na 10 s), `coalesced` stoi, a `damage stats` pokazuje 15 pełnych klatek
+na 19538 i `saved_pct=99`. Wysyłka nadąża. Zapisuję to tu zamiast wycinać,
+bo to jest przykład konkluzji, która brzmiała sensownie i była nieprawdziwa.
 
-**Druga, równie prawdopodobna przyczyna, i tańsza do sprawdzenia:** na 0.1.1
-istnieje legalna ścieżka „zamarza i wraca" — watchdog zastoju (F-007.14)
-wyzwala się i przebudowuje strumień. Był potwierdzony w boju 2026-08-07.
-Progi: 3 s i 10 odrzuceń, potem backoff do 5 s. Odróżnia je **log**, i to są
-dokładnie dwie linie:
+**Prawdziwa przyczyna okazała się inna i poważniejsza: ekran Maca zasypia pod
+żywą sesją RDP.** Serwer nie trzyma żadnej asercji
+(`PreventUserIdleDisplaySleep 0`), `displaysleep` to 10 minut, i po tym czasie
+przechwytywanie umiera z `Failed to find any displays or windows to capture`.
+W logu właściciela: **10 minut 50 sekund** martwego capture, 130 nieudanych
+prób odzyskania, i powrót sam z siebie, gdy ekran wrócił. Poprawka z iteracji
+1d zrobiła swoje — na 0.1.1 to zostałoby martwe na zawsze. Nowe wymagania
+F-007.26 … F-007.29 (**Draft**) czekają na approve.
 
-```
-WARN  capture stream is alive but delivering no usable frames (stale content filter?); recovering
-INFO  capture recovered
-```
-
-Jeśli ich nie ma, to nie watchdog — i wtedy zostaje wysyłka.
+Watchdog zastoju nie brał w tym udziału — zgłosił to delegat. Martwy punkt
+„strumień milknie całkowicie" **nadal nie ma pomiaru** i zostaje kwestią
+otwartą.
 
 ### Znalezisko uboczne: FreeRDP nie łączy się z tym serwerem
 
