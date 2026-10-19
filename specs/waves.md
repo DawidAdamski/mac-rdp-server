@@ -132,7 +132,7 @@ osobną, pełną iterację, nie „przy okazji".
 
 | Spec | Temat | Stan |
 |---|---|---|
-| F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Implemented**, ale **AC-3 NIEZALICZONE** (2026-10-19, §Pomiar) — uśpienie ekranu blokuje przechwytywanie na stałe. Iteracja 1d (F-007.19 … F-007.25) i **ADR-0016** czekają na approve |
+| F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Implemented**, ale **AC-3 NIEZALICZONE** (2026-10-19, §Pomiar) — uśpienie ekranu blokuje przechwytywanie na stałe. Iteracja 1d (F-007.19 … F-007.25) i **ADR-0016 Accepted 2026-10-19** — **pierwsza rzecz do zrobienia**, przed F-112 i F-111 |
 | F-004 | Damage tracking — wysyłanie tylko zmienionych regionów | **Implemented** — czeka na pomiar i weryfikację ręczną |
 | F-005 | Kursor — `DisplayUpdate::{RGBAPointer, CachedPointer, DefaultPointer}` | **Draft** (2026-08-24) — czeka na approve; approve = zgoda na ADR-0010 |
 | **ADR-0013** (MS-RDPBCGR §6 pkt 1) | Pomiar D-1 + korekta opisu ścieżki obrazu z ADR-0006: Surface Bits `codecID = 0` zamiast RDP 6.0 (P-01) | **Proposed** (2026-09-17) — pomiar D-1 u właściciela; przed F-005 |
@@ -331,7 +331,7 @@ Dlaczego to nie jest drobiazg o wygodzie:
 **Decyzja właściciela 2026-10-16: `~/.config/mac-rdp-server.toml`** — konwencja
 unixowa, ta sama ścieżka, którą już podają README, przykładowy plik
 i `caveats` formuły. Wymaganie zostało spisane jako osobny spec
-**F-112** (Draft, czeka na approve), a nie dopisane do F-001: F-001 jest
+**F-112** (Approved 2026-10-19), a nie dopisane do F-001: F-001 jest
 w statusie Verified i mieszanie w nim wymagań w różnych statusach zaciemniłoby
 jego własny zapis weryfikacji. F-001.4 dostało tylko odsyłacz.
 
@@ -367,6 +367,17 @@ na ręcznie budowany runtime, oraz kliknięcia prawdziwym zdarzeniem myszy —
 to ostatnie zmierzyła sonda Swift 2026-10-14.
 
 ---
+
+### Decyzja właściciela 2026-10-19 — co po czym
+
+Właściciel zaakceptował naraz pięć dokumentów i rekomendowaną kolejność:
+
+1. **ADR-0016** + **F-007 iteracja 1d** (F-007.19 … F-007.25, AC-8) — naprawa
+   zamarzania po uśpieniu ekranu. Pierwsze, bo bez tego serwer umiera na stałe
+   po kilku minutach bezczynności, co unieważnia każdą nową funkcję.
+2. **ADR-0015** — pasek menu w Ruście, jeden proces.
+3. **F-112** — domyślny plik konfiguracyjny.
+4. **F-111** — ikonka w pasku.
 
 ### Pomiar 2026-10-19 — dlaczego RDP zamarza po dłuższej bezczynności
 
@@ -417,10 +428,10 @@ Lista braków zgłoszona przez właściciela 2026-10-12, z przypisaniem:
 
 | Brak | Gdzie trafia | Stan |
 |---|---|---|
-| Środkowy przycisk myszy nie działa | **ADR-0014** (2026-10-12, Proposed) — fork IronRDP, Etap 1 z ADR-0011 | pierwsze w kolejce, czeka na approve ADR-0014 |
+| Środkowy przycisk myszy nie działa | **ADR-0014 Accepted** (2026-10-12, właściciel) — fork IronRDP, Etap 1 z ADR-0011 | zrobione: fork `DawidAdamski/IronRDP`, łatka `PTRFLAGS_BUTTON3`, `[patch.crates-io]` w `Cargo.toml`. Zostaje test ręczny B-1 |
 | Brak dźwięku | F-103 (Fala 7) — spec do napisania | po środkowym przycisku |
 | Instalacja przez Homebrew | F-110 (**Implemented 2026-10-12**) + F-106 + F-109 (Fala 5) | formuła, procedura wydania, README, licencje, `SECURITY.md`, strona — zrobione; `brew audit --strict` i `brew style` zielone. Tap publiczny od 2026-10-14, **AC-1 zaliczone na nim 2026-10-15** instalacją właściciela. Do Verified zostają kryteria wymagające drugiego Maca, obcej osoby i F-109 |
-| Ikonka w pasku menu z włącznikiem serwera | **F-111** — spec napisany 2026-10-16 (Draft), opiera się na **ADR-0015** (Proposed) i na **F-112** (Draft). Pomiar 2026-10-14: nie zależy od F-106. Pomiar 2026-10-16: `objc2` w Ruście, w jednym procesie z tokio | czeka na approve trzech dokumentów naraz: ADR-0015, F-112, F-111 |
+| Ikonka w pasku menu z włącznikiem serwera | **F-111 Approved 2026-10-19** razem z **ADR-0015** i **F-112**. Pomiar 2026-10-14: nie zależy od F-106. Pomiar 2026-10-16: `objc2` w Ruście, w jednym procesie z tokio | trzecie w kolejce: najpierw F-007 iter. 1d (zamarzanie), potem F-112, potem F-111 |
 | **README, licencje, `SECURITY.md`** | F-110.8–F-110.10 — wyciągnięte **przed** resztą Fali 5 (decyzja właściciela 2026-10-12: „Wypadało by") | zrobione: **opublikowane 2026-10-13**, repo nie jest już publiczne bez ostrzeżenia |
 | Strona projektu (GitHub Pages) | F-110.11 — **żyje od 2026-10-13** pod <https://dawidadamski.github.io/mac-rdp-server/>, generowana z README | najtańsze, niezależne |
 | Przegląd aktualizacji pakietów | `screencapturekit` 8.0.1 → 11.0.0 i `toml` 0.9 → 1.1 wymagają ADR (ADR-0002 §Ryzyko); patche robione na bieżąco | 2026-10-12: zrobione rcgen, thiserror, clap, async-trait. **2026-10-14: `rustls` 0.23.42 → 0.23.45** — poprawka bezpieczeństwa GHSA-2mjx-qc3c-rqvc (serwer TLS 1.3 przyjmował wiadomości handshake’u ponad granicą poziomów szyfrowania), zgłoszona przez Dependabota zaraz po upublicznieniu repo. Wydane jako **`v0.1.1`** (2026-10-14, decyzja właściciela: „z poprawką”); `v0.1.0` zostało z wersją podatną |

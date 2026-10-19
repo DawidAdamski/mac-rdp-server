@@ -537,7 +537,7 @@ nie ruszy, i nie powinna: naprawa należy do warstwy capture.
 Do tego: wywołanie blokujące siedzi w zadaniu tokio, więc **zajmuje wątek
 runtime'u** na zawsze, a na starcie blokuje wątek główny w `block_on`.
 
-### Zmiana speca — iteracja 1d (**Draft** 2026-10-19, czeka na approve)
+### Zmiana speca — iteracja 1d (**Approved** 2026-10-19)
 
 - **F-007.19** (MUST) Żadne wywołanie ScreenCaptureKit czekające na handler
   zakończenia NIE MOŻE blokować bez ograniczenia czasu — co najmniej
@@ -662,13 +662,14 @@ Kryteria akceptacji odnoszące się do przełączania ekranów (AC-4 w części
 skalowania) domykają się dopiero z F-006; iteracja 1 domyka AC-1, AC-2, AC-3,
 AC-5, AC-6, AC-7.
 
-**Iteracja 1d: Draft** (2026-10-19) — **AC-3 wykonane po raz pierwszy
+**Iteracja 1d: Approved** (2026-10-19) — **AC-3 wykonane po raz pierwszy
 i NIEZALICZONE**, patrz §8c. Przyczyna nazwana w stosie i w źródle crate'a:
 `start_capture`/`stop_capture` w `screencapturekit 8.0.1` czekają na
 `Condvar::wait_while` **bez timeoutu**, więc odzyskiwanie po uśpieniu ekranu
-wisi na zawsze. Nowe wymagania F-007.19 … F-007.25 i nowe AC-8 czekają na
-approve właściciela. Poprawka zależy od **ADR-0016** (bump
-`screencapturekit` 8.0.1 → 11.0.0), który jest w statusie Proposed.
+wisi na zawsze. Nowe wymagania F-007.19 … F-007.25 i nowe AC-8 mają
+**approve właściciela 2026-10-19**, razem z **ADR-0016** (bump
+`screencapturekit` 8.0.1 → 11.0.0). Właściciel wskazał tę iterację jako
+**pierwszą rzecz do zrobienia**, przed F-112 i F-111.
 
 **Stan kryteriów po iteracji 1d:** AC-1, AC-2, AC-5, AC-7 zaliczone.
 **AC-3 niezaliczone** (było niesprawdzone od 2026-08-07). AC-6 niesprawdzone.

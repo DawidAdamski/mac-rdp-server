@@ -1,6 +1,8 @@
 # ADR-0015 — Ikonka w pasku menu: `objc2` w Ruście, w jednym procesie
 
-- **Status:** Proposed (2026-10-16) — czeka na approve właściciela
+- **Status:** Accepted (2026-10-19, właściciel)
+- **Decyzja właściciela:** **approve 2026-10-19**. Kolejność: po naprawie
+  zamarzania z F-007 iteracji 1d (ADR-0016), potem F-112, potem F-111.
 - **Dotyczy:** F-111 (ikonka w pasku), F-112 (domyślny plik konfiguracyjny),
   F-109 (`launchd`), F-106 (bundel `.app`), `CLAUDE.md` §Granice
   architektoniczne i §Zależności

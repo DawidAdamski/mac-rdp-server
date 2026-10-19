@@ -112,7 +112,8 @@ mieć odpowiadające im testy automatyczne; AC-6 i AC-7 są do przeczytania.
 
 ## 6. Status
 
-**Draft** (2026-10-16) — czeka na approve właściciela.
+**Approved** (2026-10-19). Draft 2026-10-16, approve właściciela 2026-10-19.
+Kolejność: po naprawie zamarzania (F-007 iteracja 1d + ADR-0016), przed F-111.
 
 Powstał z uwagi właściciela po pierwszej instalacji z Homebrew: „musiałem
 dorzucić `--bind-addr 0.0.0.0`". Samo zachowanie było poprawne (domyślny

@@ -1,6 +1,9 @@
 # ADR-0016 — `screencapturekit` 8.0.1 → 11.0.0, bo tam jest ograniczony czas oczekiwania
 
-- **Status:** Proposed (2026-10-19) — czeka na approve właściciela
+- **Status:** Accepted (2026-10-19, właściciel)
+- **Decyzja właściciela:** **approve 2026-10-19** — razem z iteracją 1d
+  F-007 (F-007.19 … F-007.25, AC-8), jako pierwsza rzecz do zrobienia przed
+  F-112 i F-111.
 - **Dotyczy:** F-007 §8c i wymagania F-007.19 … F-007.25, F-002
   (`frame_from_sample`), ADR-0002, ADR-0005, `CLAUDE.md` §Zależności
 

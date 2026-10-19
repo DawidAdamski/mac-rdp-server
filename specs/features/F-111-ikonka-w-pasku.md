@@ -141,7 +141,8 @@ Ręczne (checklista właściciela — część macOS-owa, `CLAUDE.md` §Testy):
 
 ## 6. Status
 
-**Draft** (2026-10-16) — czeka na approve właściciela.
+**Approved** (2026-10-19). Draft 2026-10-16, approve właściciela 2026-10-19,
+razem z ADR-0015. Kolejność: po F-007 iteracji 1d i po F-112.
 
 Powstał z listy braków zgłoszonej 2026-10-12: „myślałem, że można by zrobić
 w górnym pasku jakąś ikonkę. I tam dać suwaczek czy włączyć, czy nie włączyć
