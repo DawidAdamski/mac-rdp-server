@@ -11,7 +11,7 @@ use anyhow::Result;
 use bytes::Bytes;
 use tokio::sync::watch;
 
-use super::canvas::{BGRA_ALERT, BGRA_BLACK, BGRA_WAITING, BGRA_WHITE, Canvas, padded_stride};
+use super::canvas::{BGRA_ALERT, BGRA_BLACK, BGRA_STALLED, BGRA_WAITING, BGRA_WHITE, Canvas, padded_stride};
 use super::{DisplayId, DisplayInfo, Frame, FrameSource, FrameStream, PixelFormat};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,6 +20,12 @@ pub enum Placeholder {
     PermissionDenied,
     /// The stream started but has not produced a frame yet. Deep blue, ellipsis.
     WaitingForFirstFrame,
+    /// Capture was working and stopped; recovery is retrying (F-007.27).
+    /// Amber, pause bars. Without this the client keeps showing the last
+    /// captured frame, and a frozen picture with no explanation is
+    /// indistinguishable from a hung server — measured on a real session,
+    /// F-007 §8e.
+    CaptureUnavailable,
 }
 
 impl Placeholder {
@@ -27,6 +33,7 @@ impl Placeholder {
         match self {
             Self::PermissionDenied => BGRA_ALERT,
             Self::WaitingForFirstFrame => BGRA_WAITING,
+            Self::CaptureUnavailable => BGRA_STALLED,
         }
     }
 }
@@ -78,6 +85,18 @@ pub fn render(width: u32, height: u32, kind: Placeholder) -> Frame {
             for i in 0..3 {
                 canvas.rect(x + (dot + gap) * i, y, dot, dot, BGRA_WHITE);
             }
+        }
+        Placeholder::CaptureUnavailable => {
+            // Pause bars: two tall rectangles. Reads as "not updating" rather
+            // than "broken", which is what a retrying recovery actually is.
+            let bar_w = unit / 2;
+            let bar_h = unit * 2;
+            let gap = bar_w;
+            let total = bar_w * 2 + gap;
+            let x = width.saturating_sub(total) / 2;
+            let y = centre_y.saturating_sub(bar_h / 2);
+            canvas.rect(x, y, bar_w, bar_h, BGRA_WHITE);
+            canvas.rect(x + bar_w + gap, y, bar_w, bar_h, BGRA_WHITE);
         }
     }
 
@@ -157,7 +176,11 @@ mod tests {
 
     #[test]
     fn geometry_is_consistent() {
-        for kind in [Placeholder::PermissionDenied, Placeholder::WaitingForFirstFrame] {
+        for kind in [
+            Placeholder::PermissionDenied,
+            Placeholder::WaitingForFirstFrame,
+            Placeholder::CaptureUnavailable,
+        ] {
             let frame = render(640, 480, kind);
             assert_eq!(frame.width, 640);
             assert_eq!(frame.height, 480);
@@ -175,6 +198,28 @@ mod tests {
         assert_eq!(denied.pixel(4, 4), Some(BGRA_ALERT));
         assert_eq!(waiting.pixel(4, 4), Some(BGRA_WAITING));
         assert_ne!(denied.data, waiting.data);
+    }
+
+    /// F-007.27: "capture stopped and is being retried" must not look like
+    /// either of the other two, because the three ask for three different
+    /// reactions — grant a permission, wait a moment, or wait for the screen
+    /// to come back.
+    #[test]
+    fn f007_27_the_capture_unavailable_placeholder_is_its_own_screen() {
+        let denied = render(320, 240, Placeholder::PermissionDenied);
+        let waiting = render(320, 240, Placeholder::WaitingForFirstFrame);
+        let stalled = render(320, 240, Placeholder::CaptureUnavailable);
+
+        assert_eq!(stalled.pixel(4, 4), Some(BGRA_STALLED));
+        assert_ne!(stalled.data, denied.data);
+        assert_ne!(stalled.data, waiting.data);
+
+        // And it must not be a flat field of colour: the symbol in the middle
+        // is what makes it readable as a message rather than a glitch.
+        assert!(
+            (0..240).any(|y| (0..320).any(|x| stalled.pixel(x, y) == Some(BGRA_WHITE))),
+            "the pause bars must actually be drawn"
+        );
     }
 
     #[test]

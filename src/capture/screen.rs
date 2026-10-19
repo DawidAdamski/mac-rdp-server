@@ -74,6 +74,15 @@ const STATS_INTERVAL: Duration = Duration::from_secs(10);
 /// macOS release whatever it was holding.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
+/// How long an outage must last before the client is shown a placeholder
+/// instead of the last captured frame (F-007.27).
+///
+/// Long enough that a half-second blip does not flash a screen at anybody,
+/// short enough that a real outage explains itself before the user starts
+/// wondering whether to restart the server — which is what happened on
+/// 2026-10-19, through eleven minutes of frozen picture (F-007 §8e).
+const PLACEHOLDER_AFTER: Duration = Duration::from_secs(3);
+
 /// How often a *continuing* recovery failure earns a warning (F-007.21).
 ///
 /// Every attempt is logged; only one per interval is loud. A display asleep
@@ -787,6 +796,9 @@ async fn recover(
     death_rx: &mut mpsc::UnboundedReceiver<String>,
     stop_rx: &mut oneshot::Receiver<()>,
 ) -> Option<SCStream> {
+    let outage_began = Instant::now();
+    let mut placeholder_shown = false;
+
     loop {
         let delay = backoff.next_delay();
         tokio::select! {
@@ -834,6 +846,20 @@ async fn recover(
                         delay_ms,
                         "recovery attempt failed again; backing off"
                     ),
+                }
+
+                // F-007.27: until now the client kept looking at the last
+                // captured frame, which is indistinguishable from a hung
+                // server. Replace it once, not on every attempt — the channel
+                // coalesces, but each publish costs the encoder a full frame.
+                if !placeholder_shown && outage_began.elapsed() >= PLACEHOLDER_AFTER {
+                    placeholder_shown = true;
+                    let (width, height) = desktop;
+                    let _ = tx.send(placeholder::render(width, height, Placeholder::CaptureUnavailable));
+                    info!(
+                        display = display_id.0,
+                        width, height, "showing the capture-unavailable placeholder to the client"
+                    );
                 }
             }
         }

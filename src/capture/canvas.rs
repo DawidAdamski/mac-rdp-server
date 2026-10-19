@@ -18,6 +18,12 @@ pub const BGRA_BLACK: [u8; 4] = [0x00, 0x00, 0x00, 0xFF];
 pub const BGRA_ALERT: [u8; 4] = [0x20, 0x20, 0xB0, 0xFF];
 /// Deep blue — the "waiting for the first frame" screen.
 pub const BGRA_WAITING: [u8; 4] = [0x80, 0x40, 0x10, 0xFF];
+
+/// Amber: capture is temporarily unavailable — the display went away and
+/// recovery is retrying (F-007.27). Distinct from the alert red of a refused
+/// permission and from the waiting blue, because the three mean three
+/// different things and the user has only the colour to go on.
+pub const BGRA_STALLED: [u8; 4] = [0x10, 0x80, 0xD0, 0xFF];
 /// Fills the row padding. Never visible unless stride handling is wrong.
 pub const BGRA_PADDING: [u8; 4] = [0xFF, 0x00, 0xFF, 0xFF];
 
