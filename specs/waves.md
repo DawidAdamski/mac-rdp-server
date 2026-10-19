@@ -419,6 +419,65 @@ więc licznik uśpienia ekranu nie dojdzie do końca. Omija jeden bodziec z kilk
 Jeśli serwer już zamarzł — `pkill -9 mac-rdp-server` **przed** ponownym
 uruchomieniem, bo inaczej następny start zawiśnie.
 
+### Pomiar 2026-10-19b — „jakby czasami nie nadążał stream"
+
+Drugie zgłoszenie właściciela tego dnia: „miałem parę razy taką sytuację, że
+się zblokowało, ale jak odczekałem, to wróciło — tak jakby czasami nie nadążał
+stream."
+
+**To nie jest objaw naprawiony w §Pomiar 2026-10-19.** Tam nie wracało nigdy;
+tu wraca samo. Zmierzone też, że właściciel testował na **starym 0.1.1**:
+proces chodził z `/opt/homebrew/Cellar/mac-rdp-server/0.1.1/bin/mac-rdp-server`,
+czyli bez poprawki.
+
+Co zmierzone, ogniwo po ogniwie:
+
+| Ogniwo | Wynik | Wąskie gardło? |
+|---|---|---|
+| Przechwytywanie | **29,6 klatki/s** stabilnie przy 5120×1440 (przyrosty 295, 296, 297 na 10 s) | nie |
+| Enkoder | najgorzej **1,05 ms** na klatkę przeciw budżetowi 33,3 ms — sonda `specs/probes/f004-encoder-throughput/` | nie |
+| Wysyłka do klienta | **niezmierzona** | **kandydat** |
+
+Zostaje wysyłka, i jest konkretny powód: pełna klatka to **28 MB**
+nieskompresowanych, a enkoder przechodzi na pełną klatkę, gdy zmieni się
+większość ekranu (Cmd+Tab, przewijanie). `watch` nie kolejkuje, więc nadmiar
+klatek się **gubi** — i to widać w liczniku `coalesced`. „Zablokowało się
+i wróciło" pasuje do tego dokładnie.
+
+**Druga, równie prawdopodobna przyczyna, i tańsza do sprawdzenia:** na 0.1.1
+istnieje legalna ścieżka „zamarza i wraca" — watchdog zastoju (F-007.14)
+wyzwala się i przebudowuje strumień. Był potwierdzony w boju 2026-08-07.
+Progi: 3 s i 10 odrzuceń, potem backoff do 5 s. Odróżnia je **log**, i to są
+dokładnie dwie linie:
+
+```
+WARN  capture stream is alive but delivering no usable frames (stale content filter?); recovering
+INFO  capture recovered
+```
+
+Jeśli ich nie ma, to nie watchdog — i wtedy zostaje wysyłka.
+
+### Znalezisko uboczne: FreeRDP nie łączy się z tym serwerem
+
+Próba zmierzenia wysyłki lokalnym klientem nie wyszła i to jest osobna sprawa
+do rozstrzygnięcia:
+
+- `xfreerdp` to klient X11 i bez XQuartza nie startuje
+  (`failed to open display`).
+- `sdl-freerdp` (FreeRDP **3.32.2**) negocjuje poprawnie — wybiera `SSL` —
+  a potem **nie kończy handshake'u TLS**: `transport_connect_tls` zwraca
+  `ERRCONNECT_CONNECT_CANCELLED [0x0002000B]`, serwer widzi koniec połączenia
+  po 127 ms z `failed=false`. Z `/cert:ignore`, więc to nie monit
+  o certyfikat.
+
+To spina się ze **F-008 AC-5, które padło 2026-09-24 z klientem z rodziny
+FreeRDP**. Praktyczny skutek: ręczne testy A-3 i C-1 da się dziś zrobić tylko
+`mstsc`, a tabela debugowania w `CLAUDE.md` podawała składnię FreeRDP 2
+(`-nla`), która w 3.x nie istnieje — poprawione.
+
+Nie drążone dalej, bo to inny wątek niż zgłoszony objaw. Kandydat na własny
+spec albo na pozycję w backlogu po decyzji właściciela.
+
 ## Decyzja właściciela 2026-10-12 — kolejność fal
 
 Właściciel przestawił kolejność: **produkt (Fala 5) i dźwięk (Fala 7) wchodzą

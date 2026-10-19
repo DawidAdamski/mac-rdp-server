@@ -1,0 +1,12 @@
+[package]
+name = "f004-encoder-throughput"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+mac-rdp-server = { path = "../../.." }
+bytes = "1"
+
+[profile.release]
+debug = false

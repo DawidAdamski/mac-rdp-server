@@ -110,7 +110,7 @@ zmienia API, którego używamy.
 
 | Problem | Narzędzie |
 |---|---|
-| Klient się nie łączy | `xfreerdp /v:127.0.0.1:3389 /cert:ignore -nla /log-level:TRACE` |
+| Klient się nie łączy | `sdl-freerdp /v:127.0.0.1:3389 /cert:ignore /sec:nla:off /log-level:TRACE` — uwaga: na FreeRDP 3.x `-nla` nie istnieje, a `xfreerdp` wymaga XQuartza. **Dziś sam handshake TLS z FreeRDP nie przechodzi** (waves.md §Pomiar 2026-10-19b), więc do testów ręcznych służy `mstsc` |
 | Coś w protokole | `IRONRDP_LOG=trace` |
 | Trzeba zobaczyć ruch | `SSLKEYLOGFILE=/tmp/rdp-keys.log` + Wireshark (`make_acceptor()` włącza `rustls::KeyLogFile`) |
 | Nasze logi | `MAC_RDP_LOG=debug` |
