@@ -23,6 +23,9 @@ the manifest, or one that has no section in this file.
   `~/.config/mac-rdp-server.toml` and stop there, as if that path were read.
   It is not: the file is read only when `--config` points at it, so the
   caveat now shows that command too.
+- The README and the documentation page now carry the display-sleep freeze as a
+  known bug, with the two commands that work around it, instead of leaving it
+  for whoever hits it to rediscover (F-007 §8c, ADR-0016).
 
 ## [0.1.1] — 2026-10-14
 

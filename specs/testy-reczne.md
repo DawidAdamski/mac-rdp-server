@@ -334,28 +334,41 @@ ikony na pulpicie.
 
 # Blok C — stabilność (F-007 AC-3, AC-6)
 
-Dwa kryteria z Fali 3, których nikt nigdy nie sprawdził. Razem 5 minut.
+## C-1 — Uśpienie i wybudzenie ekranu (F-007 AC-3) — **zrobione 2026-10-19, NIEZALICZONE**
 
-## C-1 — Uśpienie i wybudzenie ekranu (F-007 AC-3)
+**Nie trać na to czasu — to już jest zmierzone i zdiagnozowane.** Wyszło
+dokładnie to, co zgłosiłeś w trakcie testów: „po dłuższym czasie nie
+korzystania rdp freezuje. Ponowne podłączenie się nie pomaga."
 
-**Co zrobić.**
+Co ustalił pomiar (szczegóły: F-007 §8c, sonda
+`specs/probes/f007-ac3-displaysleep/`):
 
-1. Połącz się klientem, zostaw sesję otwartą.
-2. Na Macu:
+- Przyczyna: `SCStream::start_capture` i `stop_capture` w
+  `screencapturekit 8.0.1` czekają na `Condvar::wait_while` **bez timeoutu**.
+  Po uśpieniu ekranu handler zakończenia już nie odpala, więc odzyskiwanie
+  strumienia wisi na zawsze.
+- Reconnect nie pomaga, bo strumień jest **jeden na proces** i startuje przed
+  serwowaniem; nowa sesja dostaje ostatnią wartość martwego kanału.
+- Poprawka czeka na approve: wymagania F-007.19 … F-007.25 i **ADR-0016**
+  (bump `screencapturekit` do 11.0.0, gdzie oczekiwanie jest ograniczone).
 
-   ```sh
-   pmset displaysleepnow
-   ```
+**Co z tym robić w praktyce, dopóki nie jest naprawione:**
 
-3. Odczekaj 20 sekund, wybudź ekran (klawisz na lokalnej klawiaturze).
+```sh
+caffeinate -d mac-rdp-server …   # nie pozwala ekranowi zasnąć
+pkill -9 mac-rdp-server          # jeśli już zamarzł — PRZED ponownym startem
+```
 
-**Co ma się stać.** Obraz w kliencie wraca **sam**, bez restartu serwera
-i bez rozłączenia. W trakcie uśpienia może być placeholder albo pauza.
+Drugie polecenie nie jest kosmetyką: dopóki zawieszony proces żyje, **każdy**
+następny start serwera zawiśnie, bo blokuje przechwytywanie dla całej maszyny.
 
-**ODPOWIEDŹ:**
-- Wynik:
-- Co widziałem:
-- Log:
+Do ponownego wykonania **po** poprawce — wtedy skryptem, nie ręcznie:
+
+```sh
+zsh specs/probes/f007-ac3-displaysleep/run.sh
+```
+
+Skrypt gasi ekran, budzi go i sam mówi PASS albo FAIL (F-007 AC-8).
 
 ## C-2 — Pięć cykli połącz–rozłącz (F-007 AC-6)
 

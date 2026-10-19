@@ -132,7 +132,7 @@ osobną, pełną iterację, nie „przy okazji".
 
 | Spec | Temat | Stan |
 |---|---|---|
-| F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Implemented** — AC-2 zaliczone po iter. 1b+1c; AC-3/AC-6 do weryfikacji zamykającej |
+| F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Implemented**, ale **AC-3 NIEZALICZONE** (2026-10-19, §Pomiar) — uśpienie ekranu blokuje przechwytywanie na stałe. Iteracja 1d (F-007.19 … F-007.25) i **ADR-0016** czekają na approve |
 | F-004 | Damage tracking — wysyłanie tylko zmienionych regionów | **Implemented** — czeka na pomiar i weryfikację ręczną |
 | F-005 | Kursor — `DisplayUpdate::{RGBAPointer, CachedPointer, DefaultPointer}` | **Draft** (2026-08-24) — czeka na approve; approve = zgoda na ADR-0010 |
 | **ADR-0013** (MS-RDPBCGR §6 pkt 1) | Pomiar D-1 + korekta opisu ścieżki obrazu z ADR-0006: Surface Bits `codecID = 0` zamiast RDP 6.0 (P-01) | **Proposed** (2026-09-17) — pomiar D-1 u właściciela; przed F-005 |
@@ -367,6 +367,44 @@ na ręcznie budowany runtime, oraz kliknięcia prawdziwym zdarzeniem myszy —
 to ostatnie zmierzyła sonda Swift 2026-10-14.
 
 ---
+
+### Pomiar 2026-10-19 — dlaczego RDP zamarza po dłuższej bezczynności
+
+Zgłoszenie właściciela w trakcie testów: „po dłuższym czasie nie korzystania
+rdp freezuje. Ponowne podłączenie się nie pomaga. Dalej jest zfreezowane."
+To jest **F-007 AC-3**, kryterium niesprawdzone od 2026-08-07. Wykonane
+i niezaliczone. Pełna diagnoza: F-007 §8c, decyzja o zależności: ADR-0016,
+powtarzalny pomiar: `specs/probes/f007-ac3-displaysleep/`.
+
+| Pytanie | Wynik |
+|---|---|
+| Czy wyzwalacz odzyskiwania zadziałał | **Tak.** `did_stop_with_error` odpalił w 50 ms po uśpieniu ekranu; w logu jest `recovering` |
+| Czy obraz wrócił po wybudzeniu | **Nie.** `received` stoi na 749 przez uśpienie i 40 s po wybudzeniu |
+| Co blokuje | `SCStream::start_capture` → `SyncCompletion::wait` → `Condvar::wait_while` **bez timeoutu** (`screencapturekit 8.0.1`, `doom-fish-utils 0.3.3`). `sample`: 2563/2563 próbek w `__psynch_cvwait` |
+| Dlaczego reconnect nie pomaga | `source.start()` jest raz, w `main`, przed `serve`; `FrameStream` jest jeden na proces. Nowa sesja dostaje ostatnią wartość martwego `watch` — czyli tę samą zamrożoną klatkę |
+| Czy to dotyczy też startu | **Tak.** Drugi przebieg zawisł na starcie: log kończy się na `display available`, cisza 90 s, blokada na wątku głównym w `block_on` |
+| Czy szkoda przeżywa proces | **Tak.** Żywy zawieszony proces blokuje start capture dla **całej maszyny**; po `kill -9` świeży serwer dostał klatkę natychmiast |
+| Czy 11.0.0 to naprawia | **Tak.** `DEFAULT_TIMEOUT = 30 s`, `SCREENCAPTUREKIT_COMPLETION_TIMEOUT_SECS`, `is_timeout_error`, plus `claim_start` na powtórzony start |
+| Koszt bumpa 8 → 11 | **Jedna funkcja.** `frame_from_sample`: `image_buffer()` → `pixel_buffer()`, `lock_read_only()` → `lock(READ_ONLY)`, typy z `screencapturekit::cv` za feature'em `cv`. Reszta API bez zmian nazw |
+
+**Trzy lekcje, zapisane, żeby nie szukać ich drugi raz:**
+
+1. **Cisza w logu była połową czasu diagnozy.** `recover` ma linię
+   `recovery attempt failed; backing off` na każdą nieudaną próbę — i ona nie
+   padła ani razu, bo nigdy nie wróciliśmy z próby. Brak wpisu o porażce jest
+   informacją tylko wtedy, gdy wiadomo, że wpis miał być.
+2. **`capture supervisor did not stop within the timeout` nie był osobną
+   sprawą.** Ten warning towarzyszył nam od dawna i był objawem tej samej
+   blokady, bo `stop_capture` czeka identycznie jak `start_capture`.
+3. **Bump zależności przestał być porządkowaniem.** `screencapturekit 8 → 11`
+   leżał od 2026-10-12 jako higiena. Po tym pomiarze jest kandydatem na
+   poprawkę — i to pomiar, a nie CHANGELOG, zdecydował.
+
+**Obejście na czas przed poprawką**, zmierzone: `caffeinate -d mac-rdp-server …`
+trzyma asercję `PreventUserIdleDisplaySleep` (widać w `pmset -g assertions`),
+więc licznik uśpienia ekranu nie dojdzie do końca. Omija jeden bodziec z kilku.
+Jeśli serwer już zamarzł — `pkill -9 mac-rdp-server` **przed** ponownym
+uruchomieniem, bo inaczej następny start zawiśnie.
 
 ## Decyzja właściciela 2026-10-12 — kolejność fal
 

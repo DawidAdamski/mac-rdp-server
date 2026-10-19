@@ -203,8 +203,34 @@ encoder   = "damage"   # "damage" sends only what changed, "full" sends whole fr
 | Emoji and other non-keyboard text | The server handles Unicode input; `mstsc` never sends it. A client that sends Unicode events works |
 | Resizing the client window | The desktop stays the size of the Mac's display; the client scales or scrolls |
 | A menu-bar icon, a launchd service, an `.app` bundle | F-109, F-111, F-106 — wave 5 |
+| **Surviving a display sleep** | **Known bug.** Once the Mac's display sleeps, capture stops for good and reconnecting does not help. See [the picture freezes](#the-picture-freezes-and-reconnecting-does-not-help) |
 
 ## Troubleshooting
+
+### The picture freezes and reconnecting does not help
+
+If the Mac's display has gone to sleep, capture stops and does not come back.
+Reconnecting shows the same frozen frame, because the capture stream is
+started once per process and every connection shares it.
+
+The cause is a call into ScreenCaptureKit that waits for a callback with no
+time limit: when the display sleeps the callback never arrives, and the
+recovery path parks there forever. The fix is being tracked as F-007.19 and
+ADR-0016.
+
+Two things to know until it is fixed:
+
+```sh
+# Keep the display awake for as long as the server runs.
+caffeinate -d mac-rdp-server --bind-addr 127.0.0.1
+
+# If it has already frozen, kill it BEFORE starting again.
+pkill -9 mac-rdp-server
+```
+
+That `pkill` is not housekeeping. While a frozen server is still running it
+blocks screen capture for the whole machine, so the next server you start will
+hang too — with no message at all.
 
 **Black screen, or a picture saying the permission is missing.** Screen
 Recording is not granted to the application you started the server from, or it

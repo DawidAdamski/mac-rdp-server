@@ -130,6 +130,11 @@ Potwierdzone osobno: **reconnect przy zdrowym capture działa** (trzy pod rząd,
    klienta) — serwer działa dalej, każde nowe połączenie pokazuje obraz.
 7. **AC-7** Log przy trwałej awarii jest czytelny: kilka linii z backoffem,
    nie setki identycznych.
+8. **AC-8** Skryptowalna wersja AC-3: `pmset displaysleepnow`, odczekanie,
+   wybudzenie — w logu pojawia się `capture recovered`, a licznik `received`
+   znów rośnie w ciągu 30 s od wybudzenia. Sonda
+   `specs/probes/f007-ac3-displaysleep/` robi dokładnie to i dziś kończy się
+   wynikiem negatywnym (§8c).
 
 ## 6. Poza zakresem
 
@@ -435,6 +440,141 @@ w dokumentacji użytkownika (**F-110**).
 weryfikacji zamykającej Falę 3 — nie blokują startu F-004, bo F-007 jest
 jednym ze speców tej fali, a status **Verified** nadaje się fali jako całości.
 
+## 8c. Wynik weryfikacji AC-3 (2026-10-19) — NIEZALICZONE
+
+**AC-3 wykonane po raz pierwszy i niezaliczone: obraz nie wraca po wybudzeniu
+ekranu, a proces zostaje trwale zablokowany.** Zgłoszone przez właściciela
+w trakcie testów: „po dłuższym czasie nie korzystania rdp freezuje. Ponowne
+podłączenie się nie pomaga. Dalej jest zfreezowane."
+
+AC-3 było **niesprawdzone od 2026-08-07** (§8, otwarta kwestia 3) i przeszło
+do weryfikacji zamykającej Falę 3. Odtworzone dwa razy wymuszonym
+`pmset displaysleepnow` (sonda `specs/probes/f007-ac3-displaysleep/`)
+i potwierdzone niezależnie na trzecim procesie — instancji, którą właściciel
+miał uruchomioną do własnych testów.
+
+### Co pokazał pomiar
+
+Ekran uśpiony 10:24:20, wybudzony 10:24:55, `MAC_RDP_LOG=debug`:
+
+| Czas | Zdarzenie |
+|---|---|
+| 10:24:20.649 | `WARN dropping frame error=sample buffer carries no image buffer` — `rejected` 0 → 1 |
+| 10:24:20.701 | `WARN capture stream stopped unexpectedly; recovering reason=SCStream error (No capture source provided): Failed to find any displays or windows to capture display=5` |
+| 10:24:25 → 10:25:35 | `received` **stoi na 749** — przez całe uśpienie **i 40 s po wybudzeniu** |
+| nigdy | brak `capture recovered` **i brak** `recovery attempt failed; backing off` |
+| 10:25:39 | `WARN capture supervisor did not stop within the timeout` |
+
+Dwa wnioski od razu:
+
+1. **Wyzwalacz zadziałał poprawnie.** `did_stop_with_error` odpalił, F-007.1
+   zrobiło swoje. Watchdog zastoju (F-007.14) jest tu niewinny — nie był do
+   tego potrzebny, bo strumień zgłosił śmierć sam.
+2. **Zawiodło samo odzyskiwanie, i zawiodło w ciszy.** `recover` loguje
+   `recovery attempt failed; backing off` przy **każdej** nieudanej próbie
+   (`src/capture/screen.rs:630`), a tej linii nie ma ani razu. Czyli nigdy nie
+   wróciliśmy z `try_rebuild`.
+
+### Przyczyna — nazwana w stosie i potwierdzona w źródle crate'a
+
+`sample` zablokowanego procesu pokazał cały 3-sekundowy odcinek (2563 próbki
+z 2563) w jednym miejscu:
+
+```
+main → tokio block_on → ScreenCaptureKitSource::<FrameSource>::start
+  → capture::screen::build_stream
+    → screencapturekit::stream::sc_stream::SCStream::start_capture
+      → doom_fish_utils::completion::SyncCompletion::wait
+        → _pthread_cond_wait → __psynch_cvwait
+```
+
+W źródle `screencapturekit 8.0.1` (`src/stream/sc_stream.rs:659`)
+`start_capture` kończy się na `completion.wait()`, a `wait`
+(`doom-fish-utils 0.3.3`, `src/completion.rs:99`) to:
+
+```rust
+self.inner.cvar.wait_while(state, |s| s.result.is_none()).unwrap()
+```
+
+**`Condvar::wait_while` bez timeoutu.** W całym crate jest dokładnie jeden
+`fn wait` i nie istnieje wariant z ograniczeniem czasu. `stop_capture`
+(`:672`) czeka identycznie.
+
+Czyli pełny łańcuch: ekran zasypia → ScreenCaptureKit zatrzymuje strumień
+i zgłasza to delegatem → supervisor **poprawnie** wchodzi w odzyskiwanie →
+odzyskiwanie woła `stop_capture`/`start_capture` → te **nigdy nie wracają**,
+bo handler zakończenia już nie odpali → zadanie supervisora wisi na zmiennej
+warunkowej do końca życia procesu.
+
+### Dlaczego ponowne podłączenie nie pomaga
+
+To nie przypadek ani wina sesji, to konsekwencja architektury: `source.start()`
+jest wołane **raz**, w `main`, **przed** `serve` (`src/main.rs:56`), a
+`FrameStream` jest jeden na proces. Nowa sesja RDP podłącza się do tego samego,
+martwego kanału `watch` i dostaje jego ostatnią wartość — czyli dokładnie tę
+zamrożoną klatkę, którą widział poprzedni klient. Żadna liczba reconnectów tego
+nie ruszy, i nie powinna: naprawa należy do warstwy capture.
+
+### Trzy skutki uboczne, zmierzone przy okazji
+
+1. **Ścieżka startowa ma tę samą blokadę, na głównym wątku.** Drugi przebieg
+   sondy zawiesił się już na starcie: log kończy się na `display available`
+   i przez 90 s nie ma nic — ani pierwszej klatki, ani ostrzeżenia
+   `FIRST_FRAME_TIMEOUT`. Stos to potwierdza. Serwer, który nie wystaje
+   i nic nie mówi, jest gorszy niż serwer, który zawodzi z komunikatem.
+2. **Żywy zawieszony proces blokuje start capture dla całej maszyny.**
+   Dopóki proces zaparkowany na condvarze żył, **każdy** nowy serwer wisiał na
+   starcie. Po `kill -9` tego procesu świeży serwer dostał pierwszą klatkę
+   natychmiast (`first frame received width=5120 height=1440 stride=20480`).
+   Restart `replayd` ani maszyny nie jest potrzebny. Stąd procedura ratunkowa
+   na czas przed poprawką: `pkill -9 mac-rdp-server` **przed** ponownym
+   uruchomieniem.
+3. **`capture supervisor did not stop within the timeout` to ten sam błąd.**
+   Czyste zamknięcie woła `stop_capture`, które blokuje się identycznie. Ten
+   warning był widoczny od dawna i był objawem tej przyczyny, nie osobną
+   sprawą.
+
+Do tego: wywołanie blokujące siedzi w zadaniu tokio, więc **zajmuje wątek
+runtime'u** na zawsze, a na starcie blokuje wątek główny w `block_on`.
+
+### Zmiana speca — iteracja 1d (**Draft** 2026-10-19, czeka na approve)
+
+- **F-007.19** (MUST) Żadne wywołanie ScreenCaptureKit czekające na handler
+  zakończenia NIE MOŻE blokować bez ograniczenia czasu — co najmniej
+  `start_capture` i `stop_capture`. Po przekroczeniu limitu wywołanie MUSI być
+  uznane za nieudane i trafić w istniejącą ścieżkę backoffu (F-007.3).
+- **F-007.20** (MUST) Wywołania blokujące NIE MOGĄ wykonywać się na wątkach
+  runtime'u asynchronicznego ani na wątku głównym. Zmierzony skutek złamania
+  tego: zajęty na zawsze wątek runtime'u i zawieszony start serwera bez
+  jakiegokolwiek komunikatu.
+- **F-007.21** (MUST) Każda nieudana próba odzyskania MUSI zostawić w logu
+  wpis z powodem i opóźnieniem. Wpis już istnieje, ale jest **nieosiągalny**,
+  bo nie wracamy z próby — cisza w logu była połową czasu diagnozy.
+- **F-007.22** (MUST) Jeżeli **pierwszy** start strumienia nie zakończy się
+  w limicie, serwer MUSI to powiedzieć i podać placeholder (tak jak przy braku
+  uprawnień, F-002.13) albo zakończyć się błędem z niezerowym kodem. Wisieć mu
+  nie wolno.
+- **F-007.23** (MUST) Zamknięcie serwera NIE MOŻE móc zawisnąć na
+  `stop_capture`; warning `capture supervisor did not stop within the timeout`
+  MUSI przestać być osiągalny z tego powodu.
+- **F-007.24** (MUST) Decyzja „próba przekroczyła limit ⇒ log ⇒ backoff ⇒
+  następna próba" MUSI być czysta i pokryta testem jednostkowym bez SCK — tak
+  samo jak watchdog z F-007.15.
+- **F-007.25** (SHOULD) Po wybudzeniu ekranu obraz POWINIEN wrócić **bez**
+  rozłączania klienta. Jeżeli pomiar pokaże, że świeży strumień nie wstanie,
+  dopóki poprzedni native start jest w locie, to wymaganie spada do „wraca po
+  reconnekcie" i dostaje własny wpis z pomiarem.
+
+### Czego ten spec świadomie nie rozstrzyga
+
+**Strumień, który milknie całkowicie**, nie jest wykryty przez nic: watchdog
+z F-007.14 wymaga rosnącego `rejected` (`new_rejections == 0 ⇒ return None`,
+`src/capture/watchdog.rs:114`), a tabela z F-007.14a nie ma wiersza „wszystko
+stoi". W tym incydencie to nie zaszkodziło, bo delegat zgłosił śmierć
+strumienia. Dopóki nie ma pomiaru, w którym milczenie faktycznie występuje, to
+jest **kwestia otwarta, a nie wymaganie** — zgodnie z tym, jak potraktowaliśmy
+`CGDisplayRegisterReconfigurationCallback` w §8.
+
 ## 9. Status
 
 **Approved** (2026-07-27) — z zakresem pierwszej iteracji poniżej.
@@ -521,3 +661,15 @@ próbki bez obrazu):
 Kryteria akceptacji odnoszące się do przełączania ekranów (AC-4 w części
 skalowania) domykają się dopiero z F-006; iteracja 1 domyka AC-1, AC-2, AC-3,
 AC-5, AC-6, AC-7.
+
+**Iteracja 1d: Draft** (2026-10-19) — **AC-3 wykonane po raz pierwszy
+i NIEZALICZONE**, patrz §8c. Przyczyna nazwana w stosie i w źródle crate'a:
+`start_capture`/`stop_capture` w `screencapturekit 8.0.1` czekają na
+`Condvar::wait_while` **bez timeoutu**, więc odzyskiwanie po uśpieniu ekranu
+wisi na zawsze. Nowe wymagania F-007.19 … F-007.25 i nowe AC-8 czekają na
+approve właściciela. Poprawka zależy od **ADR-0016** (bump
+`screencapturekit` 8.0.1 → 11.0.0), który jest w statusie Proposed.
+
+**Stan kryteriów po iteracji 1d:** AC-1, AC-2, AC-5, AC-7 zaliczone.
+**AC-3 niezaliczone** (było niesprawdzone od 2026-08-07). AC-6 niesprawdzone.
+AC-4 domyka się dopiero z F-006. AC-8 nowe, dziś negatywne.
