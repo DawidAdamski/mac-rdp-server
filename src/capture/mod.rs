@@ -6,6 +6,7 @@ mod backoff;
 pub mod canvas;
 pub mod geometry;
 pub mod placeholder;
+mod recovery;
 pub mod screen;
 pub mod test_pattern;
 mod watchdog;

@@ -48,12 +48,18 @@ async fn main() -> Result<()> {
 
     tls::ensure_self_signed(&config.cert_path, &config.key_path).context("preparing the TLS certificate")?;
 
-    let mut source = build_source(&config)?;
+    let mut source = build_source(&config).await?;
     log_displays(source.as_ref());
 
     let geometry = selected_geometry(source.as_ref(), config.display);
 
-    let stream = source.start().await.context("starting the frame source")?;
+    // F-007.22: this used to be able to hang for ever on a sleeping display,
+    // with the log stopping after "display available". The wait is bounded now,
+    // so the worst case is a non-zero exit with a message that names the cause.
+    let stream = source.start().await.context(
+        "starting the frame source (if ScreenCaptureKit did not answer, the display may be \
+         asleep — see the known bug in README)",
+    )?;
     // Read the size only after starting: ScreenCaptureKitSource corrects it
     // from the first real frame, which is the only size guaranteed to match
     // the pixels we actually send (F-002, AC-5).
@@ -94,7 +100,7 @@ async fn main() -> Result<()> {
 
 /// Picks a frame source, degrading to an explanatory placeholder rather than
 /// failing when Screen Recording is refused (F-002.13).
-fn build_source(config: &Config) -> Result<Box<dyn FrameSource>> {
+async fn build_source(config: &Config) -> Result<Box<dyn FrameSource>> {
     if let Some((width, height)) = config.test_pattern {
         warn!(
             width,
@@ -114,8 +120,9 @@ fn build_source(config: &Config) -> Result<Box<dyn FrameSource>> {
 
     // Anything failing past this point is a real configuration or system error
     // — an out-of-range display index must be reported, not papered over.
-    let source =
-        ScreenCaptureKitSource::new(config.display, config.max_fps).context("initialising ScreenCaptureKit capture")?;
+    let source = ScreenCaptureKitSource::new(config.display, config.max_fps)
+        .await
+        .context("initialising ScreenCaptureKit capture")?;
     Ok(Box::new(source))
 }
 

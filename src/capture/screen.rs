@@ -23,12 +23,14 @@ use screencapturekit::stream::delegate_trait::SCStreamDelegateTrait;
 use screencapturekit::stream::output_trait::SCStreamOutputTrait;
 use screencapturekit::stream::output_type::SCStreamOutputType;
 use screencapturekit::stream::sc_stream::SCStream;
+use screencapturekit::utils::completion;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, trace, warn};
 
 use super::backoff::Backoff;
 use super::placeholder::{self, Placeholder};
+use super::recovery::{FailureReporter, Report};
 use super::watchdog::StallWatchdog;
 use super::{CaptureStats, DisplayId, DisplayInfo, Frame, FrameSource, FrameStream, PixelFormat};
 
@@ -62,6 +64,73 @@ const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How often the diagnostic counters are logged (F-002.18).
 const STATS_INTERVAL: Duration = Duration::from_secs(10);
+
+/// How long shutdown waits for the supervisor to stop the stream cleanly
+/// (F-007.23).
+///
+/// Deliberately short, because Ctrl-C has to feel immediate. A healthy
+/// `stop_capture` returns in milliseconds, so this only expires on a stream
+/// that is already sick — and then the process is exiting anyway, which makes
+/// macOS release whatever it was holding.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
+
+/// How often a *continuing* recovery failure earns a warning (F-007.21).
+///
+/// Every attempt is logged; only one per interval is loud. A display asleep
+/// for an hour would otherwise produce a warning every few seconds, which is
+/// the flooding AC-7 forbids.
+const FAILURE_REPORT_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Checks that ScreenCaptureKit calls cannot wait forever (F-007.19).
+///
+/// Since `screencapturekit` 11 every wait on a completion handler is bounded,
+/// and `SCREENCAPTUREKIT_COMPLETION_TIMEOUT_SECS=0` turns that bound off. With
+/// it off we are back to the failure this requirement exists for: a display
+/// sleep parks recovery on a condvar for the rest of the process's life
+/// (F-007 §8c). An invariant the whole design leans on is worth asserting once
+/// rather than hoping for, so the server refuses to start without it.
+fn ensure_bounded_waits() -> Result<Duration> {
+    completion::default_timeout().ok_or_else(|| {
+        anyhow!(
+            "ScreenCaptureKit completion waits are unbounded because {}=0. Unset it, or give \
+             it a number of seconds: with no bound, a display sleep freezes capture for good \
+             (F-007.19).",
+            completion::TIMEOUT_ENV_VAR
+        )
+    })
+}
+
+/// Runs one blocking ScreenCaptureKit call off the async runtime (F-007.20).
+///
+/// Every call that waits for a completion handler goes through here. They are
+/// bounded now, but bounded is not instant: a sick stream can hold one for the
+/// whole bound, and holding that on a runtime thread costs a worker, while
+/// holding it on the main thread inside `block_on` stops the server dead with
+/// nothing after "display available" in the log. Both were measured
+/// (F-007 §8c), which is why this is a rule and not a preference.
+async fn off_runtime<T>(what: &'static str, call: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T>
+where
+    T: Send + 'static,
+{
+    match tokio::task::spawn_blocking(call).await {
+        Ok(result) => result,
+        Err(error) => Err(anyhow!("the blocking task for {what} did not finish: {error}")),
+    }
+}
+
+/// Turns a ScreenCaptureKit error into one that says whether the bound expired.
+///
+/// "did not answer in time" and "refused" need different reactions from
+/// whoever reads the log, and the crate distinguishes them only by a message
+/// prefix.
+fn describe(error: &SCError, doing: &str) -> anyhow::Error {
+    let message = error.to_string();
+    if completion::is_timeout_error(&message) {
+        anyhow!("ScreenCaptureKit did not answer while {doing} ({message}); is the display asleep?")
+    } else {
+        anyhow!("{message}")
+    }
+}
 
 /// Why a sample buffer could not become a [`Frame`].
 #[derive(Debug, thiserror::Error)]
@@ -242,7 +311,7 @@ impl SCStreamDelegateTrait for StreamDelegate {
 pub struct ScreenCaptureKitSource {
     displays: Vec<DisplayInfo>,
     selected: DisplayInfo,
-    filter: SCContentFilter,
+    filter: Arc<SCContentFilter>,
     max_fps: u32,
     /// Geometry actually observed on the first frame; falls back to the
     /// configured estimate until one arrives.
@@ -260,63 +329,21 @@ impl ScreenCaptureKitSource {
     /// Enumerates displays, picks one, and works out its true pixel geometry.
     ///
     /// Does not start capturing — that is [`FrameSource::start`].
-    pub fn new(display_index: u32, max_fps: u32) -> Result<Self> {
-        let content = SCShareableContent::get()
-            .map_err(|e| anyhow!("{e}"))
-            .context("listing shareable content (is Screen Recording permitted?)")?;
+    pub async fn new(display_index: u32, max_fps: u32) -> Result<Self> {
+        let bound = ensure_bounded_waits()?;
+        info!(
+            bound_s = bound.as_secs(),
+            env_var = completion::TIMEOUT_ENV_VAR,
+            "ScreenCaptureKit completion waits are bounded"
+        );
 
-        let sc_displays = content.displays();
-        if sc_displays.is_empty() {
-            bail!("ScreenCaptureKit reports no displays");
-        }
-
-        let index = usize::try_from(display_index).unwrap_or(usize::MAX);
-        let Some(sc_display) = sc_displays.get(index) else {
-            bail!(
-                "display index {display_index} is out of range; available displays: {}",
-                describe_displays(&sc_displays)
-            );
-        };
-
-        let filter = SCContentFilter::create()
-            .with_display(sc_display)
-            .with_excluding_windows(&[])
-            .build()
-            .map_err(|e| anyhow!("{e}"))
-            .context("building the content filter for the selected display")?;
-
-        let selected = display_info(Some(&filter), sc_display);
-
-        let displays = sc_displays
-            .iter()
-            .map(|d| {
-                // A display whose filter will not build is still listed, with
-                // its size read from the display alone. Dropping it would shift
-                // every later index and point `--display` at another screen
-                // without saying so.
-                match SCContentFilter::create()
-                    .with_display(d)
-                    .with_excluding_windows(&[])
-                    .build()
-                {
-                    Ok(f) => display_info(Some(&f), d),
-                    Err(error) => {
-                        warn!(
-                            %error,
-                            id = d.display_id(),
-                            "no content filter for this display; reporting its size in points"
-                        );
-                        display_info(None, d)
-                    }
-                }
-            })
-            .collect();
+        let found = off_runtime("listing shareable content", move || enumerate(display_index)).await?;
 
         Ok(Self {
-            displays,
-            desktop: (selected.width_px, selected.height_px),
-            selected,
-            filter,
+            desktop: (found.selected.width_px, found.selected.height_px),
+            displays: found.displays,
+            selected: found.selected,
+            filter: Arc::new(found.filter),
             max_fps,
             stats: Arc::new(CaptureStats::default()),
             stats_task: None,
@@ -324,7 +351,79 @@ impl ScreenCaptureKitSource {
             stop_tx: None,
         })
     }
+}
 
+/// What [`enumerate`] found: every display, the chosen one, and its filter.
+struct Enumerated {
+    displays: Vec<DisplayInfo>,
+    selected: DisplayInfo,
+    filter: SCContentFilter,
+}
+
+/// Enumerates displays and builds the content filter for the chosen one.
+///
+/// Blocking, because `SCShareableContent::get` waits for a completion handler,
+/// so it is only ever reached through [`off_runtime`] (F-007.20).
+fn enumerate(display_index: u32) -> Result<Enumerated> {
+    let content = SCShareableContent::get()
+        .map_err(|e| anyhow!("{e}"))
+        .context("listing shareable content (is Screen Recording permitted?)")?;
+
+    let sc_displays = content.displays();
+    if sc_displays.is_empty() {
+        bail!("ScreenCaptureKit reports no displays");
+    }
+
+    let index = usize::try_from(display_index).unwrap_or(usize::MAX);
+    let Some(sc_display) = sc_displays.get(index) else {
+        bail!(
+            "display index {display_index} is out of range; available displays: {}",
+            describe_displays(&sc_displays)
+        );
+    };
+
+    let filter = SCContentFilter::create()
+        .with_display(sc_display)
+        .with_excluding_windows(&[])
+        .build()
+        .map_err(|e| anyhow!("{e}"))
+        .context("building the content filter for the selected display")?;
+
+    let selected = display_info(Some(&filter), sc_display);
+
+    let displays = sc_displays
+        .iter()
+        .map(|d| {
+            // A display whose filter will not build is still listed, with
+            // its size read from the display alone. Dropping it would shift
+            // every later index and point `--display` at another screen
+            // without saying so.
+            match SCContentFilter::create()
+                .with_display(d)
+                .with_excluding_windows(&[])
+                .build()
+            {
+                Ok(f) => display_info(Some(&f), d),
+                Err(error) => {
+                    warn!(
+                        %error,
+                        id = d.display_id(),
+                        "no content filter for this display; reporting its size in points"
+                    );
+                    display_info(None, d)
+                }
+            }
+        })
+        .collect();
+
+    Ok(Enumerated {
+        displays,
+        selected,
+        filter,
+    })
+}
+
+impl ScreenCaptureKitSource {
     #[must_use]
     pub fn stats(&self) -> Arc<CaptureStats> {
         Arc::clone(&self.stats)
@@ -412,13 +511,18 @@ impl FrameSource for ScreenCaptureKitSource {
         let (tx, rx) = watch::channel(placeholder::render(width, height, Placeholder::WaitingForFirstFrame));
         let (death_tx, death_rx) = mpsc::unbounded_channel();
 
-        let stream = build_stream(
-            &self.filter,
-            &config,
-            tx.clone(),
-            Arc::clone(&self.stats),
-            death_tx.clone(),
-        )
+        // F-007.20/F-007.22: the start waits for a completion handler, so it
+        // goes to a blocking thread. It is bounded, so a sleeping display now
+        // costs an error after the bound instead of a server that hangs with
+        // nothing in the log.
+        let filter = Arc::clone(&self.filter);
+        let stats = Arc::clone(&self.stats);
+        let handler_tx = tx.clone();
+        let handler_death_tx = death_tx.clone();
+        let stream = off_runtime("starting the capture stream", move || {
+            build_stream(&filter, &config, handler_tx, stats, handler_death_tx)
+        })
+        .await
         .context("starting the ScreenCaptureKit stream")?;
 
         info!(
@@ -463,10 +567,20 @@ impl FrameSource for ScreenCaptureKitSource {
             let _ = stop_tx.send(());
         }
         if let Some(supervisor) = self.supervisor.take() {
-            match tokio::time::timeout(Duration::from_secs(2), supervisor).await {
+            match tokio::time::timeout(SHUTDOWN_GRACE, supervisor).await {
                 Ok(Ok(())) => info!("capture stopped"),
                 Ok(Err(error)) => warn!(?error, "capture supervisor ended abnormally"),
-                Err(_) => warn!("capture supervisor did not stop within the timeout"),
+                // F-007.23: this used to mean the supervisor was wedged on an
+                // unbounded `stop_capture` and would stay wedged for ever.
+                // Waits are bounded now, so it means the stream was too sick to
+                // stop inside a deadline chosen for a responsive Ctrl-C. The
+                // process is exiting, which releases it either way; the
+                // recording indicator may linger a moment.
+                Err(_) => warn!(
+                    grace_s = SHUTDOWN_GRACE.as_secs(),
+                    timed_out_calls = completion::timed_out_context_count(),
+                    "the capture stream did not stop within the shutdown grace period; exiting anyway"
+                ),
             }
         }
         Ok(())
@@ -508,7 +622,7 @@ fn build_stream(
         .add_output_handler(FrameHandler { tx, stats }, SCStreamOutputType::Screen)
         .map_err(|e| anyhow!("{e}"))
         .context("attaching the frame handler to the capture stream")?;
-    stream.start_capture().map_err(|e| anyhow!("{e}"))?;
+    stream.start_capture().map_err(|e| describe(&e, "starting capture"))?;
     Ok(stream)
 }
 
@@ -555,6 +669,7 @@ async fn supervise(params: SupervisorParams) {
 
     let mut current = initial;
     let mut backoff = Backoff::new(RECOVERY_MIN_BACKOFF, RECOVERY_MAX_BACKOFF);
+    let mut reporter = FailureReporter::new(FAILURE_REPORT_INTERVAL);
     let mut watchdog = StallWatchdog::new(WATCHDOG_STALL_THRESHOLD, WATCHDOG_MIN_REJECTIONS);
 
     let mut ticker = tokio::time::interval(WATCHDOG_POLL);
@@ -595,7 +710,7 @@ async fn supervise(params: SupervisorParams) {
 
         // Best effort on the old stream; a clean stop is not reported back to
         // the delegate, so this cannot loop us.
-        let _ = current.stop_capture();
+        stop_stream(&current, "before rebuilding").await;
         match recover(
             display_id,
             desktop,
@@ -604,6 +719,7 @@ async fn supervise(params: SupervisorParams) {
             &stats,
             &death_tx,
             &mut backoff,
+            &mut reporter,
             &mut death_rx,
             &mut stop_rx,
         )
@@ -612,6 +728,9 @@ async fn supervise(params: SupervisorParams) {
             Some(stream) => {
                 current = stream;
                 backoff.reset();
+                // A failure after a healed one is a new fault, so the next one
+                // is loud again instead of being swallowed as a repeat.
+                reporter.reset();
                 // The counters are shared across streams, so the new one must
                 // be judged on its own evidence.
                 watchdog.reset();
@@ -625,7 +744,29 @@ async fn supervise(params: SupervisorParams) {
     }
 
     // Whatever stream is current, stop it so the recording indicator goes out.
-    let _ = current.stop_capture();
+    stop_stream(&current, "at shutdown").await;
+}
+
+/// Stops a stream off the async runtime, reporting rather than propagating.
+///
+/// `stop_capture` waits for a completion handler too, and that was the other
+/// half of the freeze: the supervisor's own clean-up blocked before recovery
+/// could even begin (F-007.20, F-007.23). Failing to stop a stream we are
+/// about to replace is not fatal, so this logs and returns.
+async fn stop_stream(stream: &SCStream, when: &'static str) {
+    let handle = stream.clone();
+    if let Err(error) = off_runtime("stopping the capture stream", move || {
+        handle.stop_capture().map_err(|e| describe(&e, "stopping capture"))
+    })
+    .await
+    {
+        warn!(
+            %error,
+            when,
+            timed_out_calls = completion::timed_out_context_count(),
+            "could not stop the capture stream cleanly"
+        );
+    }
 }
 
 /// Retries rebuilding the stream with backoff until it starts again, or returns
@@ -642,6 +783,7 @@ async fn recover(
     stats: &Arc<CaptureStats>,
     death_tx: &mpsc::UnboundedSender<String>,
     backoff: &mut Backoff,
+    reporter: &mut FailureReporter,
     death_rx: &mut mpsc::UnboundedReceiver<String>,
     stop_rx: &mut oneshot::Receiver<()>,
 ) -> Option<SCStream> {
@@ -656,21 +798,44 @@ async fn recover(
         // backlog does not immediately re-trigger recovery on the new one.
         while death_rx.try_recv().is_ok() {}
 
-        match try_rebuild(
-            display_id,
-            desktop,
-            max_fps,
-            tx.clone(),
-            Arc::clone(stats),
-            death_tx.clone(),
-        ) {
+        // F-007.20: the rebuild re-enumerates content and starts a stream,
+        // both of which wait for completion handlers. Run on a runtime thread
+        // this is what wedged the supervisor for the life of the process.
+        let attempt = {
+            let tx = tx.clone();
+            let stats = Arc::clone(stats);
+            let death_tx = death_tx.clone();
+            off_runtime("rebuilding the capture stream", move || {
+                try_rebuild(display_id, desktop, max_fps, tx, stats, death_tx)
+            })
+            .await
+        };
+
+        match attempt {
             Ok(stream) => return Some(stream),
-            Err(error) => warn!(
-                %error,
-                display = display_id.0,
-                delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
-                "recovery attempt failed; backing off"
-            ),
+            // F-007.21: every attempt is reported. Only the first, and then one
+            // per interval, is loud — a display asleep for an hour must not
+            // bury the log (AC-7), but it must not be silent either, which is
+            // exactly how the freeze stayed invisible (F-007 §8c).
+            Err(error) => {
+                let delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX);
+                match reporter.observe(Instant::now()) {
+                    Report::Loud { suppressed } => warn!(
+                        %error,
+                        display = display_id.0,
+                        delay_ms,
+                        suppressed_since_last = suppressed,
+                        timed_out_calls = completion::timed_out_context_count(),
+                        "recovery attempt failed; backing off"
+                    ),
+                    Report::Quiet => debug!(
+                        %error,
+                        display = display_id.0,
+                        delay_ms,
+                        "recovery attempt failed again; backing off"
+                    ),
+                }
+            }
         }
     }
 }

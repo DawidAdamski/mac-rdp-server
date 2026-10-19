@@ -30,7 +30,9 @@ async fn main() -> Result<()> {
         bail!("{}", perms::explain(Permission::ScreenRecording));
     }
 
-    let mut source = ScreenCaptureKitSource::new(display, 30).context("initialising capture")?;
+    let mut source = ScreenCaptureKitSource::new(display, 30)
+        .await
+        .context("initialising capture")?;
     for screen in source.displays()? {
         println!(
             "display {} — {}x{} px, scale {}",

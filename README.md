@@ -203,22 +203,23 @@ encoder   = "damage"   # "damage" sends only what changed, "full" sends whole fr
 | Emoji and other non-keyboard text | The server handles Unicode input; `mstsc` never sends it. A client that sends Unicode events works |
 | Resizing the client window | The desktop stays the size of the Mac's display; the client scales or scrolls |
 | A menu-bar icon, a launchd service, an `.app` bundle | F-109, F-111, F-106 — wave 5 |
-| **Surviving a display sleep** | **Known bug.** Once the Mac's display sleeps, capture stops for good and reconnecting does not help. See [the picture freezes](#the-picture-freezes-and-reconnecting-does-not-help) |
+| **Surviving a display sleep** | Fixed, but **not in a release yet**: 0.1.1 — the version the tap installs — still freezes for good when the display sleeps. See [the picture freezes](#the-picture-freezes-and-reconnecting-does-not-help) |
 
 ## Troubleshooting
 
 ### The picture freezes and reconnecting does not help
 
-If the Mac's display has gone to sleep, capture stops and does not come back.
-Reconnecting shows the same frozen frame, because the capture stream is
-started once per process and every connection shares it.
+**This affects 0.1.1, which is the version the tap installs.** It is fixed in
+the source, and the fix ships in the next release.
 
-The cause is a call into ScreenCaptureKit that waits for a callback with no
-time limit: when the display sleeps the callback never arrives, and the
-recovery path parks there forever. The fix is being tracked as F-007.19 and
-ADR-0016.
+On 0.1.1, once the Mac's display goes to sleep, capture stops and never comes
+back. Reconnecting shows the same frozen frame, because the capture stream is
+started once per process and every connection shares it. The cause was a call
+into ScreenCaptureKit that waited for a callback with no time limit: when the
+display slept the callback never arrived and the recovery path parked there for
+the life of the process (F-007 section 8c, ADR-0016).
 
-Two things to know until it is fixed:
+On 0.1.1, two things help:
 
 ```sh
 # Keep the display awake for as long as the server runs.
@@ -231,6 +232,11 @@ pkill -9 mac-rdp-server
 That `pkill` is not housekeeping. While a frozen server is still running it
 blocks screen capture for the whole machine, so the next server you start will
 hang too — with no message at all.
+
+Measured after the fix: frames resume within about four seconds of the display
+waking, and the log says `capture recovered`. If you build from source you can
+check it yourself with `zsh specs/probes/f007-ac3-displaysleep/run.sh` — it
+blanks the display for 25 seconds on purpose and prints PASS or FAIL.
 
 **Black screen, or a picture saying the permission is missing.** Screen
 Recording is not granted to the application you started the server from, or it

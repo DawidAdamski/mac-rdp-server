@@ -17,6 +17,17 @@ the manifest, or one that has no section in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- A display sleep no longer freezes the screen for good. ScreenCaptureKit was
+  being asked to start and stop capture through a call that waited for a
+  callback with no time limit; when the display slept the callback never came
+  and the recovery path parked there for the life of the process, so
+  reconnecting showed the same frozen frame. Capture now resumes within a few
+  seconds of the display waking (F-007.19 … F-007.25, ADR-0016).
+- Shutdown and startup can no longer hang on the same call, and a failed
+  recovery attempt now says so in the log instead of leaving silence.
+
 ### Changed
 
 - The Homebrew caveat no longer shows an example configuration being copied to

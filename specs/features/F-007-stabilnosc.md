@@ -565,6 +565,58 @@ runtime'u** na zawsze, a na starcie blokuje wątek główny w `block_on`.
   dopóki poprzedni native start jest w locie, to wymaganie spada do „wraca po
   reconnekcie" i dostaje własny wpis z pomiarem.
 
+### Wynik iteracji 1d (2026-10-19) — AC-3 i AC-8 zaliczone automatycznie
+
+Zaimplementowane i zmierzone tego samego dnia. Dwa niezależne przebiegi sondy
+po poprawce, oba PASS:
+
+| Przebieg | `received` przed uśpieniem | 40 s po wybudzeniu |
+|---|---|---|
+| 1 | 295 | **1234** |
+| 2 | 295 | **1235** |
+
+Przed poprawką ten licznik stał na 749 **na zawsze**. Oś z przebiegu 1:
+`295 → 367 → 367 → 367 → 643 → 938 → 1234` — płasko przez uśpienie, potem
+znowu rośnie, a w logu `capture recovered display=5` **cztery sekundy po
+wybudzeniu**.
+
+Cisza z §8c zniknęła. Log odzyskiwania wygląda teraz tak:
+
+```
+WARN  capture stream stopped unexpectedly; recovering reason=SCStream error (No capture source provided): …
+WARN  recovery attempt failed; backing off error=display 5 is not currently available delay_ms=500 suppressed_since_last=0 timed_out_calls=0
+DEBUG recovery attempt failed again; backing off … delay_ms=1000
+…
+INFO  capture recovered display=5
+```
+
+**Niespodzianka w przyczynie, warta zapisania:** `timed_out_calls=0`. Czyli
+limit oczekiwania ani razu nie musiał się odpalić — po bumpie `try_rebuild`
+wraca **normalnie**, z czystym błędem `display 5 is not currently available`,
+w pół sekundy. Śpiący ekran po prostu znika z listy udostępnialnych treści.
+Na 8.0.1 ta sama ścieżka nie wracała nigdy. Limit z F-007.19 jest więc
+zabezpieczeniem, które w tym scenariuszu okazało się niepotrzebne — a mimo to
+zostaje, bo to on zamienia „nigdy" na „najwyżej po limicie" w scenariuszach,
+których nie zmierzyliśmy.
+
+Zweryfikowane osobno, każde pomiarem:
+
+| Co | Jak sprawdzone | Wynik |
+|---|---|---|
+| F-007.19 — limit istnieje i jest widoczny | log startowy | `ScreenCaptureKit completion waits are bounded bound_s=30` |
+| F-007.19 — brak limitu jest błędem, nie trybem | `SCREENCAPTUREKIT_COMPLETION_TIMEOUT_SECS=0` | start odrzucony, **kod wyjścia 1**, komunikat wskazuje zmienną i skutek |
+| F-007.21 — każda próba zostawia wpis | log wyżej | pierwsza głośno z `timed_out_calls`, powtórki na `debug` |
+| F-007.23 — zamknięcie nie wisi | `Ctrl-C` | **kod 0**, `capture stopped`, bez ostrzeżenia o grace period |
+| F-007.24 — maszyna decyzji czysta | 6 testów jednostkowych | `cargo test` zielone, bez SCK |
+| F-002 AC-5 + ADR-0005 po bumpie | prawdziwy obraz | `width=5120 height=1440 stride=20480`, `avg_frame_bytes=29491200` — jak na 8.0.1 |
+
+**Czego to NIE dowodzi, i trzeba powiedzieć wprost: F-007.25 pozostaje
+niezweryfikowane.** Sonda nie potrzebuje klienta RDP i żadnego nie miała
+podłączonego, więc „obraz wraca **bez rozłączania klienta**" jest na razie
+wnioskiem z konstrukcji (`watch` i `tx` przeżywają przebudowę, F-007.2), a nie
+pomiarem. To domyka ręczny test C-1 — i dopóki go nie ma, AC-3 jest zaliczone
+w części automatycznej, nie w pełnej.
+
 ### Czego ten spec świadomie nie rozstrzyga
 
 **Strumień, który milknie całkowicie**, nie jest wykryty przez nic: watchdog
@@ -662,8 +714,9 @@ Kryteria akceptacji odnoszące się do przełączania ekranów (AC-4 w części
 skalowania) domykają się dopiero z F-006; iteracja 1 domyka AC-1, AC-2, AC-3,
 AC-5, AC-6, AC-7.
 
-**Iteracja 1d: Approved** (2026-10-19) — **AC-3 wykonane po raz pierwszy
-i NIEZALICZONE**, patrz §8c. Przyczyna nazwana w stosie i w źródle crate'a:
+**Iteracja 1d: Approved, zaimplementowana, ZWERYFIKOWANA automatycznie**
+(2026-10-19) — AC-3 wykonane po raz pierwszy, **niezaliczone**, naprawione
+i ponownie zmierzone tego samego dnia; patrz §8c. Przyczyna nazwana w stosie i w źródle crate'a:
 `start_capture`/`stop_capture` w `screencapturekit 8.0.1` czekają na
 `Condvar::wait_while` **bez timeoutu**, więc odzyskiwanie po uśpieniu ekranu
 wisi na zawsze. Nowe wymagania F-007.19 … F-007.25 i nowe AC-8 mają
@@ -672,5 +725,7 @@ wisi na zawsze. Nowe wymagania F-007.19 … F-007.25 i nowe AC-8 mają
 **pierwszą rzecz do zrobienia**, przed F-112 i F-111.
 
 **Stan kryteriów po iteracji 1d:** AC-1, AC-2, AC-5, AC-7 zaliczone.
-**AC-3 niezaliczone** (było niesprawdzone od 2026-08-07). AC-6 niesprawdzone.
-AC-4 domyka się dopiero z F-006. AC-8 nowe, dziś negatywne.
+**AC-3 zaliczone w części automatycznej** (dwa przebiegi sondy, 295 → 1234
+i 295 → 1235) — pełne domknięcie wymaga ręcznego C-1 z podłączonym klientem,
+bo F-007.25 nie jest zmierzone. **AC-8 zaliczone.** AC-6 niesprawdzone.
+AC-4 domyka się dopiero z F-006.

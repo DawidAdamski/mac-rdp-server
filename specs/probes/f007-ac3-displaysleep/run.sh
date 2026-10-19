@@ -21,6 +21,17 @@ WAKE_WAIT=40
 
 echo "log: $LOG"
 
+# `tracing` colours its output, and the escape codes sit between "received="
+# and the digits. Stripping them first is the whole reason this is a function
+# and not an inline sed: getting it wrong makes the probe report FAIL on a
+# healthy server, which it did once.
+received_count() {
+  sed -E 's/\x1b\[[0-9;]*m//g' "$LOG" \
+    | grep "capture stats" \
+    | tail -1 \
+    | sed -E 's/.*received=([0-9]+).*/\1/'
+}
+
 # Hold off *system* sleep so the measurement is not cut short; display sleep
 # stays allowed, because that is the thing under test.
 caffeinate -s -t 240 &
@@ -44,7 +55,7 @@ if ! grep -q "first frame received" "$LOG"; then
 fi
 
 perl -e 'select(undef,undef,undef,12)'
-BEFORE=$(grep "capture stats" "$LOG" | tail -1 | sed -E 's/.*received=([0-9]+).*/\1/')
+BEFORE=$(received_count)
 echo "received before sleep: $BEFORE"
 
 echo "display sleep at $(date +%T)"
@@ -55,7 +66,7 @@ echo "wake at $(date +%T)"
 caffeinate -u -t 2
 perl -e "select(undef,undef,undef,$WAKE_WAIT)"
 
-AFTER=$(grep "capture stats" "$LOG" | tail -1 | sed -E 's/.*received=([0-9]+).*/\1/')
+AFTER=$(received_count)
 echo "received ${WAKE_WAIT}s after wake: $AFTER"
 
 echo

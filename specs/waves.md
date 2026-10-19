@@ -132,7 +132,7 @@ osobną, pełną iterację, nie „przy okazji".
 
 | Spec | Temat | Stan |
 |---|---|---|
-| F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Implemented**, ale **AC-3 NIEZALICZONE** (2026-10-19, §Pomiar) — uśpienie ekranu blokuje przechwytywanie na stałe. Iteracja 1d (F-007.19 … F-007.25) i **ADR-0016 Accepted 2026-10-19** — **pierwsza rzecz do zrobienia**, przed F-112 i F-111 |
+| F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Iteracja 1d zrobiona 2026-10-19**: AC-3 i AC-8 zaliczone automatycznie (295 → 1234 klatek, `capture recovered` 4 s po wybudzeniu), na `screencapturekit` 11.0.0 wg ADR-0016. Zostaje ręczny C-1 z klientem — F-007.25 niezmierzone. AC-6 niesprawdzone, AC-4 czeka na F-006 |
 | F-004 | Damage tracking — wysyłanie tylko zmienionych regionów | **Implemented** — czeka na pomiar i weryfikację ręczną |
 | F-005 | Kursor — `DisplayUpdate::{RGBAPointer, CachedPointer, DefaultPointer}` | **Draft** (2026-08-24) — czeka na approve; approve = zgoda na ADR-0010 |
 | **ADR-0013** (MS-RDPBCGR §6 pkt 1) | Pomiar D-1 + korekta opisu ścieżki obrazu z ADR-0006: Surface Bits `codecID = 0` zamiast RDP 6.0 (P-01) | **Proposed** (2026-09-17) — pomiar D-1 u właściciela; przed F-005 |
@@ -375,6 +375,8 @@ Właściciel zaakceptował naraz pięć dokumentów i rekomendowaną kolejność
 1. **ADR-0016** + **F-007 iteracja 1d** (F-007.19 … F-007.25, AC-8) — naprawa
    zamarzania po uśpieniu ekranu. Pierwsze, bo bez tego serwer umiera na stałe
    po kilku minutach bezczynności, co unieważnia każdą nową funkcję.
+   **Zrobione 2026-10-19**, zmierzone dwoma przebiegami sondy; zostaje ręczny
+   test C-1 z podłączonym klientem.
 2. **ADR-0015** — pasek menu w Ruście, jeden proces.
 3. **F-112** — domyślny plik konfiguracyjny.
 4. **F-111** — ikonka w pasku.
