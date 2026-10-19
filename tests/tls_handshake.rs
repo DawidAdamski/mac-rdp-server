@@ -141,6 +141,7 @@ async fn server_negotiates_x224_then_completes_tls() {
                         desktop_height: 240,
                         dispatcher,
                         encoder: EncoderKind::Damage,
+                        clients: tokio::sync::watch::channel(0).0,
                     })
                     .await;
                 }

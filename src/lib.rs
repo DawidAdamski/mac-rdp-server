@@ -10,5 +10,6 @@ pub mod config;
 pub mod encoder;
 pub mod input;
 pub mod perms;
+pub mod power;
 pub mod session;
 pub mod tls;

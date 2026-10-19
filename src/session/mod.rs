@@ -18,6 +18,7 @@ use std::sync::atomic::AtomicBool;
 use anyhow::{Context as _, Result};
 use ironrdp_pdu::rdp::capability_sets::BitmapCodecs;
 use ironrdp_server::{RdpServer, TlsIdentityCtx};
+use tokio::sync::watch;
 use tracing::info;
 
 pub use display::MacRdpDisplay;
@@ -39,6 +40,9 @@ pub struct SessionParams<'a> {
     pub desktop_height: u16,
     pub dispatcher: InputDispatcher,
     pub encoder: EncoderKind,
+    /// Published client count (F-007.26). `session` only counts; the decision
+    /// about what to do with the number is made outside this boundary.
+    pub clients: watch::Sender<usize>,
 }
 
 /// Builds the server and serves connections until it stops.
@@ -56,6 +60,7 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
         desktop_height,
         dispatcher,
         encoder,
+        clients,
     } = params;
 
     let identity = TlsIdentityCtx::init_from_paths(cert_path, key_path)
@@ -81,7 +86,7 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
         Arc::clone(&suppressed),
     );
     // F-003.24: connection ends reset the input state through the same queue.
-    let resets = SessionResetHandler::new(dispatcher.clone());
+    let resets = SessionResetHandler::new(dispatcher.clone(), clients);
     let handler = MacRdpInput::new(dispatcher);
 
     // TLS only, no NLA: `with_hybrid` is F-101 (ADR-0004).

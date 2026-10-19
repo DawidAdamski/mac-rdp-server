@@ -16,7 +16,7 @@ use mac_rdp_server::input::cgevent::CgEventSink;
 use mac_rdp_server::input::logging::LoggingSink;
 use mac_rdp_server::input::state::ScreenGeometry;
 use mac_rdp_server::perms::{Permission, PermissionState};
-use mac_rdp_server::{capture, input, perms, session, tls};
+use mac_rdp_server::{capture, input, perms, power, session, tls};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -82,8 +82,19 @@ async fn main() -> Result<()> {
     let geometry_watcher = selected_display_id(source.as_ref(), config.display)
         .map(|id| tokio::spawn(watch_geometry(id, dispatcher.clone())));
 
-    let result = serve(&config, stream, width, height, dispatcher).await;
+    // F-007.26. The second place where `capture`/`session` and a macOS concern
+    // meet, and it meets them the same way `watch_geometry` does: `session`
+    // publishes a number, `power` decides what it means. Measured reason:
+    // the display slept ten minutes into a live session and killed capture for
+    // eleven (F-007 §8e).
+    let (clients_tx, clients_rx) = tokio::sync::watch::channel(0_usize);
+    let display_keeper = tokio::spawn(power::keep_display_awake(clients_rx));
 
+    let result = serve(&config, stream, width, height, dispatcher, clients_tx).await;
+
+    // Abort before the stream stops, so the display is released while the log
+    // is still being written rather than after the process is already gone.
+    display_keeper.abort();
     if let Some(watcher) = geometry_watcher {
         watcher.abort();
     }
@@ -216,6 +227,7 @@ async fn serve(
     width: u32,
     height: u32,
     dispatcher: input::InputDispatcher,
+    clients: tokio::sync::watch::Sender<usize>,
 ) -> Result<()> {
     let desktop_width = u16::try_from(width).context("desktop width does not fit in u16")?;
     let desktop_height = u16::try_from(height).context("desktop height does not fit in u16")?;
@@ -242,6 +254,7 @@ async fn serve(
         desktop_height,
         dispatcher,
         encoder: config.encoder,
+        clients,
     });
 
     tokio::select! {

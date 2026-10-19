@@ -78,6 +78,7 @@ fn non_black_fraction(codecs: BitmapCodecs) -> f64 {
                         desktop_height: u16::try_from(PATTERN_HEIGHT).expect("fits"),
                         dispatcher,
                         encoder: EncoderKind::Damage,
+                        clients: tokio::sync::watch::channel(0).0,
                     })
                     .await;
                 });
@@ -160,6 +161,7 @@ fn reconnect_fractions(rounds: usize) -> Vec<f64> {
                         desktop_height: u16::try_from(PATTERN_HEIGHT).expect("fits"),
                         dispatcher,
                         encoder: EncoderKind::Damage,
+                        clients: tokio::sync::watch::channel(0).0,
                     })
                     .await;
                 });
@@ -231,6 +233,7 @@ fn observe_damage() -> DamageObservation {
                         desktop_height: u16::try_from(PATTERN_HEIGHT).expect("fits"),
                         dispatcher,
                         encoder: EncoderKind::Damage,
+                        clients: tokio::sync::watch::channel(0).0,
                     })
                     .await;
                 });

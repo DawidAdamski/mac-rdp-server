@@ -104,6 +104,7 @@ fn run_server_with<T: Send + 'static>(
                         desktop_height: u16::try_from(PATTERN_HEIGHT).expect("fits"),
                         dispatcher,
                         encoder,
+                        clients: tokio::sync::watch::channel(0).0,
                     })
                     .await;
                 });

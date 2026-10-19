@@ -120,6 +120,7 @@ fn pointer_events_from_the_wire() -> Vec<PointerEvent> {
                         desktop_height: u16::try_from(PATTERN_HEIGHT).expect("fits"),
                         dispatcher,
                         encoder: EncoderKind::Damage,
+                        clients: tokio::sync::watch::channel(0).0,
                     })
                     .await;
                 });

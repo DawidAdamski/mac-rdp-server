@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use ironrdp_server::{ConnectionHandler, KeyboardEvent, MouseEvent, PostConnectionAction, RdpServerInputHandler};
+use tokio::sync::watch;
 use tracing::{debug, trace};
 
 use super::convert;
@@ -84,18 +85,25 @@ impl KeyTrace {
 /// through the dispatcher and never block the accept loop.
 pub struct SessionResetHandler {
     dispatcher: InputDispatcher,
+    /// How many clients are connected, published for whoever cares (F-007.26).
+    ///
+    /// A plain number is the whole contract. `session` must not know that
+    /// something on the other end keeps the Mac's display awake, any more than
+    /// it knows about ScreenCaptureKit (`CLAUDE.md` §Granice).
+    clients: watch::Sender<usize>,
 }
 
 impl SessionResetHandler {
     #[must_use]
-    pub fn new(dispatcher: InputDispatcher) -> Self {
-        Self { dispatcher }
+    pub fn new(dispatcher: InputDispatcher, clients: watch::Sender<usize>) -> Self {
+        Self { dispatcher, clients }
     }
 }
 
 impl ConnectionHandler for SessionResetHandler {
     fn on_accept(&mut self, _peer: SocketAddr) -> bool {
         self.dispatcher.send(InputEvent::SessionReset);
+        self.clients.send_modify(|connected| *connected += 1);
         true
     }
 
@@ -107,6 +115,10 @@ impl ConnectionHandler for SessionResetHandler {
     ) -> PostConnectionAction {
         debug!(%peer, ?duration, failed = error.is_some(), "connection ended; resetting input state");
         self.dispatcher.send(InputEvent::SessionReset);
+        // Saturating, so an unbalanced disconnect cannot wrap the count around
+        // to a huge number and pin the display awake for ever.
+        self.clients
+            .send_modify(|connected| *connected = connected.saturating_sub(1));
         PostConnectionAction::Continue
     }
 }
@@ -119,6 +131,11 @@ mod tests {
 
     fn peer() -> SocketAddr {
         SocketAddr::from(([127, 0, 0, 1], 50_000))
+    }
+
+    /// A client counter whose value nobody reads.
+    fn counter() -> watch::Sender<usize> {
+        watch::channel(0).0
     }
 
     /// F-003a.19: every received key is described with kind, code and
@@ -162,7 +179,7 @@ mod tests {
     #[test]
     fn f003_24_connection_lifecycle_sends_session_resets() {
         let (tx, mut rx) = mpsc::channel(4);
-        let mut handler = SessionResetHandler::new(InputDispatcher::new(tx));
+        let mut handler = SessionResetHandler::new(InputDispatcher::new(tx), counter());
 
         assert!(handler.on_accept(peer()));
         let error = anyhow::anyhow!("connection reset by peer");
@@ -173,13 +190,53 @@ mod tests {
         assert_eq!(rx.try_recv().ok(), Some(InputEvent::SessionReset));
     }
 
+    /// F-007.26: the published count follows connections, because that number
+    /// is the only thing deciding whether the display is kept awake.
+    #[test]
+    fn f007_26_the_client_count_follows_connections() {
+        let (tx, _rx) = mpsc::channel(8);
+        let clients = watch::channel(0).0;
+        let seen = clients.subscribe();
+        let mut handler = SessionResetHandler::new(InputDispatcher::new(tx), clients);
+
+        assert_eq!(*seen.borrow(), 0, "nothing is connected before the first accept");
+
+        handler.on_accept(peer());
+        assert_eq!(*seen.borrow(), 1);
+
+        // Two at once is allowed, and the display must stay awake for both.
+        handler.on_accept(peer());
+        assert_eq!(*seen.borrow(), 2);
+
+        handler.on_disconnected(peer(), Duration::ZERO, None);
+        assert_eq!(*seen.borrow(), 1, "one left, one still connected");
+
+        handler.on_disconnected(peer(), Duration::ZERO, None);
+        assert_eq!(*seen.borrow(), 0, "the last one leaving releases the display");
+    }
+
+    /// F-007.26: an unbalanced disconnect must not wrap the count around.
+    ///
+    /// `0 - 1` on a `usize` would become `usize::MAX`, and the display would
+    /// then be held awake for the life of the server with no client in sight.
+    #[test]
+    fn f007_26_an_extra_disconnect_cannot_wrap_the_count() {
+        let (tx, _rx) = mpsc::channel(8);
+        let clients = watch::channel(0).0;
+        let seen = clients.subscribe();
+        let mut handler = SessionResetHandler::new(InputDispatcher::new(tx), clients);
+
+        handler.on_disconnected(peer(), Duration::ZERO, None);
+        assert_eq!(*seen.borrow(), 0);
+    }
+
     /// F-003.24: a full queue drops the reset instead of blocking the server.
     #[test]
     fn f003_24_a_full_queue_does_not_block_the_disconnect_hook() {
         let (tx, _rx) = mpsc::channel(1);
         let mut dispatcher = InputDispatcher::new(tx);
         dispatcher.send(InputEvent::SessionReset);
-        let mut handler = SessionResetHandler::new(dispatcher);
+        let mut handler = SessionResetHandler::new(dispatcher, counter());
 
         let action = handler.on_disconnected(peer(), Duration::ZERO, None);
         assert_eq!(action, PostConnectionAction::Continue);
