@@ -774,6 +774,108 @@ zakładana i zwalniana z liczbą klientów). Część ręczna — sesja dłuższ
 `displaysleep` bez dotykania Maca — czeka na spokojny moment właściciela, razem
 z F-007.25 i z żywym potwierdzeniem F-007.27.
 
+## 8g. Pomiar w boju (2026-10-19) — strumień żyje, ale milczy, i nikt tego nie widzi
+
+Właściciel zgłosił zamarznięcie **mimo podłączenia i reconnecta**, już po
+iteracji 1d. To **inna przyczyna** niż §8c i inna niż §8e.
+
+**Co pokazał log** (`/tmp/stream4.log`, proces 39926, start 14:35:44 czasu
+lokalnego, czasy w logu w UTC):
+
+```
+14:25:24Z  capture stats received=73068 …          ← ostatni wzrost
+14:39:44Z  capture stats received=73068 delivered=70806 coalesced=1693
+                        skipped_idle=1200 rejected=0 avg_frame_bytes=29491200
+```
+
+Czternaście minut bez ruchu na **wszystkich trzech** licznikach. Żadnego
+`capture stream stopped unexpectedly`, żadnej próby odzyskiwania, żadnego
+`capture stream is alive but delivering no usable frames`. `rejected=0` przez
+cały przebieg.
+
+**Czego nie było.** Stos (`sample 39926`) nie pokazuje ani jednego wątku
+zaparkowanego w `start_capture`/`stop_capture` — błąd z §8c jest naprawiony
+i nie wrócił. `client_loop` → `MacRdpDisplayUpdates::next_update` →
+`tokio::time::sleep` normalnie się kręci, więc sesja RDP nie jest zakleszczona.
+Ekran nie spał: `screencapture -x` w tym samym momencie zrobił poprawny PNG
+2,3 MB. Display 5 był dostępny.
+
+**Przyczyna, nazwana w kodzie.** `StallWatchdog::observe`
+(`src/capture/watchdog.rs`) ma wczesne wyjście:
+
+```rust
+let new_rejections = current.rejected.saturating_sub(previous.rejected);
+if new_rejections == 0 {
+    // Neither healthy nor failing: an idle desktop looks exactly like this.
+    return None;
+}
+```
+
+Sygnałem awarii jest „przychodzą odrzuty, a nie przychodzą klatki". W tej
+awarii nie przychodzi **nic**: delegat nie jest wołany ani razu, więc nie ma
+odrzutów do zliczenia i watchdog po konstrukcji milczy. F-007.14 pokrywa
+„strumień żyje i sypie śmieciem", nie pokrywa „strumień żyje i milczy".
+Reconnect nie pomaga, bo źródło klatek jest wspólne dla procesu, a nowy klient
+dostaje z `watch` ostatnią (zamrożoną) wartość.
+
+**Dlaczego cisza jest odróżnialna od bezczynnego pulpitu — i dlaczego to się
+da naprawić bez fałszywych alarmów.** `FrameHandler::did_output_sample_buffer`
+rozdziela trzy przypadki: `Complete` → `received`, `Idle`/`Blank`/`Suspended`
+→ `skipped_idle`, błąd dekodowania → `rejected`. Bezczynny pulpit **nie jest
+cichy** — podbija `skipped_idle` (w tym przebiegu uzbierało się 1200). Awaria
+z tego paragrafu zatrzymuje wszystkie trzy. Komentarz w kodzie („an idle
+desktop looks exactly like this") jest więc prawdziwy tylko dla `rejected`,
+a nie dla sumy wszystkich wywołań delegata.
+
+**Co to wywołało — hipoteza z twardą osią czasu, do potwierdzenia sondą.**
+Zamarznięcie spowodował asystent, nie właściciel. Weryfikacja F-007.26
+uruchomiła **drugi** proces `mac-rdp-server` na tym samym ekranie 5:
+
+```
+14:25:10.336Z  (mój proces) capture started display=Display 5
+14:25:16.619Z  (mój proces) capture stopped
+14:25:24Z      (proces właściciela) ostatnia klatka
+```
+
+Osiem sekund po tym, jak drugi strumień na tym samym ekranie został zamknięty,
+pierwszy zamilkł na zawsze. To pasuje do tego, co już raz zmierzyliśmy przy
+§8c: ScreenCaptureKit traktuje przechwytywanie ekranu jako zasób
+międzyprocesowy. Jeśli to się potwierdzi, awaria jest **odtwarzalna na
+żądanie**, czyli pierwsza z tej rodziny, której nie trzeba wyczekiwać.
+
+### Zmiana speca — iteracja 1f (**Draft** 2026-10-19, czeka na approve)
+
+- **F-007.30** (MUST) Watchdog MUSI uznać strumień za martwy także wtedy, gdy
+  **żaden** licznik nie rośnie — ani `received`, ani `skipped_idle`, ani
+  `rejected` — dłużej niż próg, i MUSI wtedy przebudować strumień. Próg MUSI
+  być liczony od skonfigurowanego `max_fps`, nie zapisany na stałe, żeby
+  `--max-fps 1` nie dawał fałszywych alarmów.
+- **F-007.31** (MUST) Linia `capture stats` MUSI zawierać czas od ostatniego
+  wywołania delegata (`silent_for_ms`). Dziś „zamarznięte" rozstrzyga się
+  dopiero przez porównanie dwóch linii loga z odstępu 10 sekund.
+- **F-007.32** (MUST) Odzyskiwanie z ciszy MUSI być w logu odróżnialne od obu
+  istniejących wyzwalaczy (`Reported`, `Stalled`) — z tego samego powodu, dla
+  którego powstało F-007.16.
+- **F-007.33** (SHOULD) Cisza NIE POWINNA wyzwalać odzyskiwania w czasie
+  trwającej już przebudowy ani w jej backoffie, żeby jedna awaria nie
+  generowała dwóch równoległych odzyskiwań.
+- **F-007.34** (SHOULD) Sonda w `specs/probes/` POWINNA odtwarzać tę awarię bez
+  klienta RDP: uruchom serwer, odczekaj na klatki, uruchom i zabij drugi proces
+  przechwytujący ten sam ekran, sprawdź, czy pierwszy odzyskał.
+
+**Kryterium akceptacji dla tej iteracji: AC-10** — po zamilknięciu strumienia
+(wymuszonym sondą z F-007.34) log w ciągu kilku sekund pokazuje odzyskiwanie
+z powodu ciszy, `received` znowu rośnie, a obraz u podłączonego klienta wraca
+**bez rozłączania**. Testy jednostkowe watchdoga pokrywają przypadek
+„wszystkie liczniki stoją" — to jest logika czysta, więc należy do testów
+domyślnych, nie do checklisty ręcznej.
+
+**Uwaga do F-007.27 (iteracja 1e).** Placeholder „przechwytywanie
+niedostępne" nie ratuje tej awarii: publikuje go ścieżka odzyskiwania, a ta
+w ogóle nie startuje. Dopóki F-007.30 nie jest zrobione, klient widzi
+zamrożoną klatkę bez żadnego wyjaśnienia — czyli dokładnie to, przed czym
+F-007.27 miało chronić.
+
 ## 9. Status
 
 **Approved** (2026-07-27) — z zakresem pierwszej iteracji poniżej.
@@ -887,6 +989,12 @@ z decyzją o mechanizmie: `caffeinate -d -w <pid>` jako proces potomny.
 Zrobione tego samego dnia — wynik w §8f. **AC-9 zaliczone automatycznie**,
 część ręczna (sesja dłuższa niż `displaysleep`) czeka na spokojny moment,
 tak samo jak F-007.25 i żywe potwierdzenie F-007.27.
+
+**Iteracja 1f: Draft** (2026-10-19) — F-007.30 … F-007.34 i nowe AC-10,
+z pomiaru w boju (§8g): strumień ScreenCaptureKit **zamilkł bez błędu**
+i watchdog tego nie widzi, bo jego sygnałem awarii są odrzuty, a w tej awarii
+nie przychodzi nic. 14 minut zamrożonego obrazu przy podłączonym kliencie,
+reconnect nie pomaga. Czeka na approve właściciela.
 
 **Co §8e potwierdziło o iteracji 1d:** odzyskiwanie zadziałało w boju —
 130 prób, powrót sam z siebie, log nie zalany (głośno raz na 30 s). Przy tym
