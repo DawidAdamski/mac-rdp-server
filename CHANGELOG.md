@@ -27,6 +27,15 @@ the manifest, or one that has no section in this file.
   seconds of the display waking (F-007.19 … F-007.25, ADR-0016).
 - Shutdown and startup can no longer hang on the same call, and a failed
   recovery attempt now says so in the log instead of leaving silence.
+- The Mac's display no longer idles to sleep underneath a live RDP session. It
+  did, and because a sleeping display cannot be captured, the screen went dead
+  for as long as the display stayed off — measured at 10 minutes 50 seconds on
+  a real session. The server now holds the display awake for as long as at
+  least one client is connected, and releases it when the last one leaves
+  (F-007.26, F-007.28, F-007.29).
+- While capture is unavailable, the client is now shown a placeholder saying so
+  instead of the last frame it received. A frozen picture with no explanation
+  is indistinguishable from a hung server (F-007.27).
 
 ### Changed
 

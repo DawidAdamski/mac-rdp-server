@@ -1,8 +1,9 @@
 # F-007 — Stabilność: przeżyć rekonfigurację ekranu, sen/budzenie i reconnect
 
 - **Fala:** 3 (wyciągnięta na początek Fali 3, bo blokuje realne używanie)
-- **Status:** Implemented (iteracje 1, 1b, 1c) — AC-1/2/5/7 zaliczone,
-  AC-3 i AC-6 do weryfikacji zamykającej falę, AC-4 czeka na F-006
+- **Status:** Implemented (iteracje 1, 1b, 1c, 1d, 1e) — AC-1/2/5/7/8 zaliczone,
+  AC-3 zaliczone automatycznie, AC-9 w części automatycznej, AC-6 do weryfikacji
+  zamykającej falę, AC-4 czeka na F-006
 - **Data:** 2026-07-24
 - **ADR:** ADR-0002 (SCK), ADR-0001 (silnik)
 - **Powód powstania:** otwarcie klapy MacBooka w trakcie sesji zabiło strumień
@@ -707,7 +708,7 @@ i `WaitingForFirstFrame` (`src/capture/placeholder.rs:18`) — i żadnego na
 czekać, czy restartować. To jest ta sama zasada, co w F-007.11: cicha porażka
 jest gorsza niż widoczna.
 
-### Zmiana speca — iteracja 1e (**Draft** 2026-10-19, czeka na approve)
+### Zmiana speca — iteracja 1e (**Approved** 2026-10-19)
 
 - **F-007.26** (MUST) Dopóki podłączony jest co najmniej jeden klient, serwer
   MUSI nie pozwalać ekranowi zasnąć z bezczynności, i MUSI zwolnić to
@@ -728,12 +729,50 @@ jest gorsza niż widoczna.
 `pmset -g assertions` pokazuje trzymaną asercję, obraz żyje przez cały czas,
 a po rozłączeniu klienta asercja znika.
 
-**Rozważane rozwiązania, do rozstrzygnięcia przy approve.** `caffeinate -d -w <pid>`
-jako proces potomny: zero `unsafe`, zero nowych zależności, narzędzie z systemu,
-a `-w` wiąże jego życie z naszym. Albo `IOPMAssertionCreateWithName` przez FFI:
-bez procesu potomnego, ale drugie miejsce z `unsafe` po tym, które dołożył
-ADR-0016. Sprawdzone 2026-10-19, że `caffeinate -d` faktycznie trzyma
+**Decyzja właściciela przy approve (2026-10-19): `caffeinate -d -w <pid>`**
+jako proces potomny. Zero `unsafe`, zero nowych zależności, narzędzie z systemu,
+a `-w <nasz pid>` wiąże jego życie z naszym, co realizuje F-007.28 bez pisania
+ani linijki obsługi sygnałów. Odrzucona alternatywa: `IOPMAssertionCreateWithName`
+przez FFI — bez procesu potomnego, ale drugie w repo miejsce z `unsafe` po tym,
+które dołożył ADR-0016, i to w kodzie, który musi być poprawny przy każdym
+wyjściu z procesu. Sprawdzone 2026-10-19, że `caffeinate -d` faktycznie trzyma
 `PreventUserIdleDisplaySleep` (widoczne w `pmset -g assertions`).
+
+## 8f. Wynik iteracji 1e (2026-10-19)
+
+**F-007.26 — zaliczone automatycznie.** `session` publikuje liczbę podłączonych
+klientów przez `watch::Sender<usize>` (`SessionResetHandler`), `power` decyduje,
+co ta liczba znaczy (`power::keep_display_awake`). To ta sama granica, którą już
+przechodzi `watch_geometry`: `session` nie wie nic o macOS, `power` nie wie nic
+o RDP. `tests/display_wake_lock.rs` przechodzi całą ścieżkę: 0 klientów → brak
+procesu i brak asercji; 1 → `caffeinate -d -w <pid serwera>` żyje
+**i** `pmset -g assertions` pokazuje `PreventUserIdleDisplaySleep`; 2 → nadal
+jedna blokada (nie dwie); z powrotem 1 → nadal trzymana; 0 → zwolniona.
+Dodatkowo dwa testy jednostkowe na sam licznik, w tym jeden na to, że nadmiarowe
+rozłączenie nie zawija licznika w dół (`saturating_sub`).
+
+**F-007.27 — zaimplementowane, zweryfikowane w części renderowania.** Nowy
+wariant `Placeholder::CaptureUnavailable` (amber, pauza), publikowany raz na
+awarię po 3 sekundach ciszy, i kasowany przez pierwszą prawdziwą klatkę po
+powrocie. Test sprawdza, że jest wizualnie różny od obu pozostałych i że symbol
+jest naprawdę narysowany, a nie że tło ma inny kolor. **Publikacja na żywej
+awarii nie jest jeszcze zobaczona** — wymaga zgaszenia ekranu pod podłączonym
+klientem, a w momencie weryfikacji właściciel miał żywą sesję mstsc.
+
+**F-007.28 — zaliczone.** `-w <pid serwera>` plus `Drop`, który zabija i zbiera
+dziecko. Zmierzone na żywo: po `Ctrl-C` nie zostaje żaden `caffeinate`.
+
+**F-007.29 — zaliczone.** Oba zdarzenia widoczne w logu; przy surowym
+połączeniu `nc` (które nie jest poprawnym RDP) pojawiły się
+`holding the display awake caffeinate_pid=83569 server_pid=83536`
+i `released the display; it may idle to sleep again` w tej samej milisekundzie,
+co jest dokładnie poprawnym zachowaniem: klient się podłączył i natychmiast
+odpadł.
+
+**AC-9: zaliczone w części automatycznej** (asercja widoczna w `pmset`,
+zakładana i zwalniana z liczbą klientów). Część ręczna — sesja dłuższa niż
+`displaysleep` bez dotykania Maca — czeka na spokojny moment właściciela, razem
+z F-007.25 i z żywym potwierdzeniem F-007.27.
 
 ## 9. Status
 
@@ -838,12 +877,16 @@ i 295 → 1235) — pełne domknięcie wymaga ręcznego C-1 z podłączonym klie
 bo F-007.25 nie jest zmierzone. **AC-8 zaliczone.** AC-6 niesprawdzone.
 AC-4 domyka się dopiero z F-006.
 
-**Iteracja 1e: Draft** (2026-10-19) — F-007.26 … F-007.29, z pomiaru w boju
+**Iteracja 1e: Implemented** (2026-10-19) — F-007.26 … F-007.29, z pomiaru w boju
 (§8e): **ekran Maca zasypia pod żywą sesją RDP** i przechwytywanie umiera na
 10 minut 50 sekund, bo nie da się przechwycić ekranu, którego nie ma. Serwer
 nie trzyma żadnej asercji. Przy okazji odsłonięta druga luka: w czasie awarii
 klient widzi ostatnią zamrożoną klatkę, bo `Placeholder` nie ma wariantu
-„przechwytywanie niedostępne”. Czeka na approve właściciela.
+„przechwytywanie niedostępne”. **Approve właściciela 2026-10-19**, razem
+z decyzją o mechanizmie: `caffeinate -d -w <pid>` jako proces potomny.
+Zrobione tego samego dnia — wynik w §8f. **AC-9 zaliczone automatycznie**,
+część ręczna (sesja dłuższa niż `displaysleep`) czeka na spokojny moment,
+tak samo jak F-007.25 i żywe potwierdzenie F-007.27.
 
 **Co §8e potwierdziło o iteracji 1d:** odzyskiwanie zadziałało w boju —
 130 prób, powrót sam z siebie, log nie zalany (głośno raz na 30 s). Przy tym

@@ -132,7 +132,7 @@ osobną, pełną iterację, nie „przy okazji".
 
 | Spec | Temat | Stan |
 |---|---|---|
-| F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Iteracja 1d zrobiona 2026-10-19** i potwierdzona w boju (§8e: 130 prób, powrót sam po 10 m 50 s). **Iteracja 1e Draft**: F-007.26 … F-007.29 — ekran Maca zasypia pod żywą sesją RDP, serwer nie trzyma asercji; plus brak placeholdera na niedostępne przechwytywanie. F-007.25 nadal niezmierzone. AC-6 niesprawdzone, AC-4 czeka na F-006 |
+| F-007 | Stabilność — reconnect, sleep/wake, zmiana rozdzielczości | **Iteracja 1d zrobiona 2026-10-19** i potwierdzona w boju (§8e: 130 prób, powrót sam po 10 m 50 s). **Iteracja 1e zrobiona 2026-10-19** (F-007.26 … F-007.29, approve właściciela): serwer trzyma `caffeinate -d -w <pid>`, dopóki jest podłączony klient, i publikuje placeholder „przechwytywanie niedostępne” zamiast zamrożonej klatki. AC-9 zaliczone automatycznie; część ręczna, F-007.25 i żywe potwierdzenie placeholdera czekają na spokojny moment. AC-6 niesprawdzone, AC-4 czeka na F-006 |
 | F-004 | Damage tracking — wysyłanie tylko zmienionych regionów | **Implemented** — czeka na pomiar i weryfikację ręczną |
 | F-005 | Kursor — `DisplayUpdate::{RGBAPointer, CachedPointer, DefaultPointer}` | **Draft** (2026-08-24) — czeka na approve; approve = zgoda na ADR-0010 |
 | **ADR-0013** (MS-RDPBCGR §6 pkt 1) | Pomiar D-1 + korekta opisu ścieżki obrazu z ADR-0006: Surface Bits `codecID = 0` zamiast RDP 6.0 (P-01) | **Proposed** (2026-09-17) — pomiar D-1 u właściciela; przed F-005 |
@@ -452,7 +452,7 @@ przechwytywanie umiera z `Failed to find any displays or windows to capture`.
 W logu właściciela: **10 minut 50 sekund** martwego capture, 130 nieudanych
 prób odzyskania, i powrót sam z siebie, gdy ekran wrócił. Poprawka z iteracji
 1d zrobiła swoje — na 0.1.1 to zostałoby martwe na zawsze. Nowe wymagania
-F-007.26 … F-007.29 (**Draft**) czekają na approve.
+F-007.26 … F-007.29 mają **approve właściciela 2026-10-19** i są zrobione tego samego dnia (F-007 §8f).
 
 Watchdog zastoju nie brał w tym udziału — zgłosił to delegat. Martwy punkt
 „strumień milknie całkowicie" **nadal nie ma pomiaru** i zostaje kwestią
@@ -493,7 +493,7 @@ Lista braków zgłoszona przez właściciela 2026-10-12, z przypisaniem:
 | Środkowy przycisk myszy nie działa | **ADR-0014 Accepted** (2026-10-12, właściciel) — fork IronRDP, Etap 1 z ADR-0011 | zrobione: fork `DawidAdamski/IronRDP`, łatka `PTRFLAGS_BUTTON3`, `[patch.crates-io]` w `Cargo.toml`. Zostaje test ręczny B-1 |
 | Brak dźwięku | F-103 (Fala 7) — spec do napisania | po środkowym przycisku |
 | Instalacja przez Homebrew | F-110 (**Implemented 2026-10-12**) + F-106 + F-109 (Fala 5) | formuła, procedura wydania, README, licencje, `SECURITY.md`, strona — zrobione; `brew audit --strict` i `brew style` zielone. Tap publiczny od 2026-10-14, **AC-1 zaliczone na nim 2026-10-15** instalacją właściciela. Do Verified zostają kryteria wymagające drugiego Maca, obcej osoby i F-109 |
-| Ikonka w pasku menu z włącznikiem serwera | **F-111 Approved 2026-10-19** razem z **ADR-0015** i **F-112**. Pomiar 2026-10-14: nie zależy od F-106. Pomiar 2026-10-16: `objc2` w Ruście, w jednym procesie z tokio | trzecie w kolejce: najpierw F-007 iter. 1d (zamarzanie), potem F-112, potem F-111 |
+| Ikonka w pasku menu z włącznikiem serwera | **F-111 Approved 2026-10-19** razem z **ADR-0015** i **F-112**. Pomiar 2026-10-14: nie zależy od F-106. Pomiar 2026-10-16: `objc2` w Ruście, w jednym procesie z tokio | trzecie w kolejce: F-007 iter. 1d i 1e zrobione 2026-10-19, więc teraz F-112, potem F-111 |
 | **README, licencje, `SECURITY.md`** | F-110.8–F-110.10 — wyciągnięte **przed** resztą Fali 5 (decyzja właściciela 2026-10-12: „Wypadało by") | zrobione: **opublikowane 2026-10-13**, repo nie jest już publiczne bez ostrzeżenia |
 | Strona projektu (GitHub Pages) | F-110.11 — **żyje od 2026-10-13** pod <https://dawidadamski.github.io/mac-rdp-server/>, generowana z README | najtańsze, niezależne |
 | Przegląd aktualizacji pakietów | `screencapturekit` 8.0.1 → 11.0.0 i `toml` 0.9 → 1.1 wymagają ADR (ADR-0002 §Ryzyko); patche robione na bieżąco | 2026-10-12: zrobione rcgen, thiserror, clap, async-trait. **2026-10-14: `rustls` 0.23.42 → 0.23.45** — poprawka bezpieczeństwa GHSA-2mjx-qc3c-rqvc (serwer TLS 1.3 przyjmował wiadomości handshake’u ponad granicą poziomów szyfrowania), zgłoszona przez Dependabota zaraz po upublicznieniu repo. Wydane jako **`v0.1.1`** (2026-10-14, decyzja właściciela: „z poprawką”); `v0.1.0` zostało z wersją podatną |
