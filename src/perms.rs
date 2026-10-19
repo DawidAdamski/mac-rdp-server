@@ -10,8 +10,12 @@
 //! is left guessing.
 
 // Apple ships no Rust bindings for these four symbols, and pulling in a second
-// binding tree for two booleans is not worth it (ADR-0003). Declaring them here
-// is the entire unsafe surface of this crate.
+// binding tree for two booleans is not worth it (ADR-0003).
+//
+// One of two unsafe sites in the crate. The other is a single expression in
+// `capture::screen`, where `apple-cf` exposes a locked pixel buffer's bytes
+// only through an unsafe fn (ADR-0016); it carries its own `#[expect]` rather
+// than a module-wide allow.
 #![allow(unsafe_code)]
 
 use tracing::{error, info, warn};

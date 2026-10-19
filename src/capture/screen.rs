@@ -74,6 +74,8 @@ pub enum FrameError {
     UnexpectedFormat { actual: String },
     #[error("failed to lock the pixel buffer: CVReturn {0}")]
     Lock(i32),
+    #[error("the locked pixel buffer exposed no contiguous bytes (null base address?)")]
+    NoBaseAddress,
     #[error("inconsistent geometry: {width}x{height}, bytes_per_row {bytes_per_row}, buffer {len} bytes")]
     Geometry {
         width: usize,
@@ -129,7 +131,7 @@ fn frame_from_sample(sample: &CMSampleBuffer, sequence: u64) -> Result<Option<Fr
         return Ok(None);
     }
 
-    let buffer = sample.image_buffer().ok_or(FrameError::NoImageBuffer)?;
+    let buffer = sample.pixel_buffer().ok_or(FrameError::NoImageBuffer)?;
 
     if buffer.is_planar() {
         return Err(FrameError::Planar {
@@ -153,7 +155,21 @@ fn frame_from_sample(sample: &CMSampleBuffer, sequence: u64) -> Result<Option<Fr
     // the compositor cannot reuse this surface until we let go.
     let data = {
         let guard = buffer.lock_read_only().map_err(FrameError::Lock)?;
-        let slice = guard.as_slice();
+        // SAFETY: the guard keeps the base address mapped for as long as it
+        // lives, and the buffer is non-planar (checked above), so its bytes are
+        // one contiguous run of `data_size()`. `as_slice` hands back `None`
+        // instead of a dangling slice when the base address is null, and that
+        // case is handled right here rather than trusted away.
+        //
+        // This is the second unsafe site in the crate, after `perms`. It is not
+        // a choice: `screencapturekit` 8.0.1 did this very read behind a safe
+        // wrapper, and 11.0.0 moved the pixel buffer to `apple-cf`, which
+        // exposes the bytes only through an unsafe fn. Recorded in ADR-0016.
+        #[expect(
+            unsafe_code,
+            reason = "apple-cf 0.11 offers no safe path to the locked bytes; see ADR-0016"
+        )]
+        let slice = unsafe { guard.as_slice() }.ok_or(FrameError::NoBaseAddress)?;
         validate_geometry(width, height, stride, slice.len(), bpp)?;
         Bytes::copy_from_slice(slice)
     };
@@ -265,18 +281,34 @@ impl ScreenCaptureKitSource {
         let filter = SCContentFilter::create()
             .with_display(sc_display)
             .with_excluding_windows(&[])
-            .build();
+            .build()
+            .map_err(|e| anyhow!("{e}"))
+            .context("building the content filter for the selected display")?;
 
-        let selected = display_info(&filter, sc_display);
+        let selected = display_info(Some(&filter), sc_display);
 
         let displays = sc_displays
             .iter()
             .map(|d| {
-                let f = SCContentFilter::create()
+                // A display whose filter will not build is still listed, with
+                // its size read from the display alone. Dropping it would shift
+                // every later index and point `--display` at another screen
+                // without saying so.
+                match SCContentFilter::create()
                     .with_display(d)
                     .with_excluding_windows(&[])
-                    .build();
-                display_info(&f, d)
+                    .build()
+                {
+                    Ok(f) => display_info(Some(&f), d),
+                    Err(error) => {
+                        warn!(
+                            %error,
+                            id = d.display_id(),
+                            "no content filter for this display; reporting its size in points"
+                        );
+                        display_info(None, d)
+                    }
+                }
             })
             .collect();
 
@@ -303,7 +335,7 @@ impl ScreenCaptureKitSource {
 ///
 /// The origin comes from `SCDisplay::frame()` (in points) — needed so input can
 /// map desktop pixels onto the right display in a multi-monitor layout (F-003.6).
-fn display_info(filter: &SCContentFilter, display: &SCDisplay) -> DisplayInfo {
+fn display_info(filter: Option<&SCContentFilter>, display: &SCDisplay) -> DisplayInfo {
     let (width_px, height_px, scale_factor) = pixel_geometry(filter, display);
     let frame = display.frame();
     DisplayInfo {
@@ -323,11 +355,13 @@ fn display_info(filter: &SCContentFilter, display: &SCDisplay) -> DisplayInfo {
 /// half the pixel count. `SCShareableContentInfo` gives the authoritative pixel
 /// size; if it is unavailable we fall back to points multiplied by the filter's
 /// scale factor.
-fn pixel_geometry(filter: &SCContentFilter, display: &SCDisplay) -> (u32, u32, f64) {
-    let scale = f64::from(filter.point_pixel_scale());
+fn pixel_geometry(filter: Option<&SCContentFilter>, display: &SCDisplay) -> (u32, u32, f64) {
+    let scale = filter.map_or(1.0, |f| f64::from(f.point_pixel_scale()));
     let scale = if scale > 0.0 { scale } else { 1.0 };
 
-    if let Some(info) = SCShareableContentInfo::for_filter(filter) {
+    if let Some(filter) = filter
+        && let Some(info) = SCShareableContentInfo::for_filter(filter)
+    {
         let (w, h) = info.pixel_size();
         if w > 0 && h > 0 {
             return (w, h, f64::from(info.point_pixel_scale()));
@@ -467,8 +501,13 @@ fn build_stream(
     stats: Arc<CaptureStats>,
     death_tx: mpsc::UnboundedSender<String>,
 ) -> Result<SCStream> {
-    let mut stream = SCStream::new_with_delegate(filter, config, StreamDelegate { death_tx });
-    stream.add_output_handler(FrameHandler { tx, stats }, SCStreamOutputType::Screen);
+    let mut stream = SCStream::new_with_delegate(filter, config, StreamDelegate { death_tx })
+        .map_err(|e| anyhow!("{e}"))
+        .context("creating the capture stream")?;
+    stream
+        .add_output_handler(FrameHandler { tx, stats }, SCStreamOutputType::Screen)
+        .map_err(|e| anyhow!("{e}"))
+        .context("attaching the frame handler to the capture stream")?;
     stream.start_capture().map_err(|e| anyhow!("{e}"))?;
     Ok(stream)
 }
@@ -661,9 +700,11 @@ fn try_rebuild(
     let filter = SCContentFilter::create()
         .with_display(display)
         .with_excluding_windows(&[])
-        .build();
+        .build()
+        .map_err(|e| anyhow!("{e}"))
+        .context("building the content filter during recovery")?;
 
-    let (width, height, _scale) = pixel_geometry(&filter, display);
+    let (width, height, _scale) = pixel_geometry(Some(&filter), display);
     if (width, height) != desktop {
         // The negotiated desktop size is fixed until F-006 wires up dynamic
         // resize; a changed resolution would need scaling/cropping (F-007.6).

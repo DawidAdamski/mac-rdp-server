@@ -91,13 +91,16 @@ Zmienia się **jedna funkcja** — `frame_from_sample` (`src/capture/screen.rs:1
 | 8.0.1 | 11.0.0 |
 |---|---|
 | `sample.image_buffer()` | `sample.pixel_buffer()` |
-| `buffer.lock_read_only()` | `buffer.lock(CVPixelBufferLockFlags::READ_ONLY)` |
-| `buffer.is_planar()`, `plane_count()`, `bytes_per_row()` | w module `screencapturekit::cv`, za feature'em `cv` |
-| typy z `screencapturekit::cm` | `screencapturekit::cv::{CVPixelBuffer, CVPixelBufferLockFlags, PixelBufferCursorExt}` |
+| `guard.as_slice()` | to samo, ale **`unsafe fn`** zwracająca `Option` |
+| `SCContentFilter::…build()` | zwraca `Result<_, SCError>` |
+| `SCStream::new_with_delegate`, `add_output_handler` | zwracają `Result<_, SCError>` |
 
-11.0.0 zależy od rodziny `apple-cf` (`>=0.11, <0.12`, features `cg`,
-`iosurface`, `dispatch`, `cv`, `cm`). To pięć wywołań w jednym miejscu, każde
-z bezpośrednim odpowiednikiem — koszt zmierzony, nie oszacowany.
+Sprostowanie do powyższego, po wykonaniu portu: `lock_read_only()`,
+`is_planar()`, `plane_count()`, `width()`, `height()`, `bytes_per_row()`
+**zostają pod tymi samymi nazwami** — przeniosły się do `apple-cf`, które
+`screencapturekit` re-eksportuje przez `pub mod cv` (nie za feature'em).
+Pierwotna lista powstała z grepa po źródle samego `screencapturekit`
+i dlatego pokazywała je jako brakujące.
 
 ## Decyzja
 
@@ -175,3 +178,53 @@ z definicji: watchdog wymaga rosnącego `rejected`
 (`new_rejections == 0 ⇒ return None`), a tu nie rośnie nic, bo strumień nie
 oddaje już żadnych próbek. W tym incydencie wyzwalacz i tak odpalił poprawnie
 przez delegata — zawiodło odzyskiwanie, więc i naprawa należy do odzyskiwania.
+
+## Wynik wykonania — krok 1 (2026-10-19)
+
+Bump wykonany, port zrobiony, zmierzone na żywym Macu.
+
+**Koszt w zależnościach: zero nowych pakietów.** `cargo metadata` daje 412
+pakietów przed i 412 po. `apple-cf` i `apple-metal` były w drzewie już przy
+8.0.1; zmieniły się tylko wersje:
+
+| Pakiet | Przed | Po |
+|---|---|---|
+| `screencapturekit` | 8.0.1 | 11.0.0 |
+| `apple-cf` | 0.9.3 | 0.11.0 |
+| `apple-metal` | 0.8.8 | 0.10.0 |
+| `doom-fish-utils` | 0.3.3 | 0.4.1 |
+
+Przewidywanie z §Konsekwencje („drzewo zależności rośnie") było więc
+pesymistyczne — i dobrze, że zostało zapisane jako do zmierzenia, a nie jako
+fakt.
+
+**Przechwytywanie działa identycznie.** Pierwsza klatka
+`width=5120 height=1440 stride=20480`, `avg_frame_bytes=29491200`, 296 klatek
+w 10 s przy `--max-fps 30`. To są te same liczby co na 8.0.1, czyli F-002 AC-5
+(rozmiar pulpitu z pierwszej klatki) i arytmetyka stride z ADR-0005 trzymają
+się na nowym API, sprawdzone na obrazie, nie na typach.
+
+### Czego ten ADR nie przewidział: jeden blok `unsafe`
+
+`Cargo.toml` ma `[lints.rust] unsafe_code = "deny"`, a jedynym wyjątkiem był
+`src/perms.rs` (ADR-0003), z komentarzem, że to „cała powierzchnia unsafe
+w tym crate". **Po bumpie ten komentarz przestał być prawdą.**
+
+W 8.0.1 `guard.as_slice()` było bezpieczne — crate robił `unsafe` u siebie.
+W `apple-cf 0.11` `CVPixelBufferLockGuard` ma tylko `Drop` i `Debug`, żadnego
+`Deref` ani `AsRef`, a jedyne dojście do bajtów to
+`pub unsafe fn as_slice(&self) -> Option<&[u8]>`. `PixelBufferCursorExt`,
+który z nazwy brzmi jak bezpieczna alternatywa, operuje na `io::Cursor` nad
+**już** zdobytym slice'em i czyta po jednym pikselu — dla 5120×1440 to nie
+jest opcja.
+
+Czyli: **bump wymusza drugie miejsce z `unsafe`**, jedno wyrażenie
+w `frame_from_sample`. Zrobione możliwie wąsko — `#[expect(unsafe_code, …)]`
+na tej jednej instrukcji, nie `allow` na moduł — z komentarzem SAFETY
+(guard trzyma mapowanie, bufor jest nieplanarny, `None` zamiast wiszącego
+slice'a jest obsłużone). Komentarz w `perms.rs` poprawiony, żeby nie kłamał.
+
+To nie zmienia decyzji: wariant B zostawiał zawieszone wątki, które blokują
+przechwytywanie całej maszyny, a to jest gorsze niż jedno udokumentowane
+wyrażenie `unsafe`. Ale jest to **zmiana niezmiennika całego projektu**
+i dlatego stoi tu, a nie w komentarzu w kodzie.
