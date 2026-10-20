@@ -13,7 +13,7 @@ mod watchdog;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -114,7 +114,7 @@ pub struct DisplayInfo {
 }
 
 /// Diagnostic counters for a capture session (F-002.18).
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct CaptureStats {
     sequence: AtomicU64,
     received: AtomicU64,
@@ -124,6 +124,31 @@ pub struct CaptureStats {
     rejected: AtomicU64,
     bytes: AtomicU64,
     logged_rejections: AtomicU64,
+    /// When this counter set was created, the zero point for `last_activity_ms`.
+    epoch: Instant,
+    /// Milliseconds since `epoch` at the last call from ScreenCaptureKit of
+    /// *any* kind — a frame, an idle frame, or an unusable one (F-007.31).
+    ///
+    /// An `Instant` is not atomic and this is written from Apple's delivery
+    /// thread, so it travels as milliseconds since a fixed point instead.
+    last_activity_ms: AtomicU64,
+}
+
+impl Default for CaptureStats {
+    fn default() -> Self {
+        Self {
+            sequence: AtomicU64::new(0),
+            received: AtomicU64::new(0),
+            delivered: AtomicU64::new(0),
+            coalesced: AtomicU64::new(0),
+            skipped: AtomicU64::new(0),
+            rejected: AtomicU64::new(0),
+            bytes: AtomicU64::new(0),
+            logged_rejections: AtomicU64::new(0),
+            epoch: Instant::now(),
+            last_activity_ms: AtomicU64::new(0),
+        }
+    }
 }
 
 /// A consistent-enough read of [`CaptureStats`] for logging.
@@ -135,6 +160,13 @@ pub struct StatsSnapshot {
     pub skipped: u64,
     pub rejected: u64,
     pub bytes: u64,
+    /// How long ScreenCaptureKit has not called us at all (F-007.31).
+    ///
+    /// Zero-ish on a healthy stream at any frame rate, and growing without
+    /// bound on the failure in F-007 §8g, where the stream stays alive and
+    /// simply stops delivering. Before the first call it measures the age of
+    /// the counters, which answers the same question: nothing has arrived yet.
+    pub silent_for: Duration,
 }
 
 impl StatsSnapshot {
@@ -150,8 +182,27 @@ impl CaptureStats {
     }
 
     pub(crate) fn record_received(&self, bytes: u64) {
+        self.touch();
         self.received.fetch_add(1, Ordering::Relaxed);
         self.bytes.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    /// `record_received` with a fixed size, so tests can treat the three
+    /// delivery outcomes as one shape.
+    #[cfg(test)]
+    fn record_first_frame(&self) {
+        self.record_received(1);
+    }
+
+    /// Notes that ScreenCaptureKit called us, whatever it brought (F-007.31).
+    ///
+    /// Called from all three delivery outcomes, because the question this
+    /// answers is not "are we getting pictures" but "is the stream calling us
+    /// at all" — and on an idle desktop only the second one has a healthy
+    /// answer.
+    fn touch(&self) {
+        let elapsed = u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.last_activity_ms.store(elapsed, Ordering::Relaxed);
     }
 
     pub(crate) fn record_delivered(&self, skipped: u64) {
@@ -162,10 +213,12 @@ impl CaptureStats {
     }
 
     pub(crate) fn record_skipped(&self) {
+        self.touch();
         self.skipped.fetch_add(1, Ordering::Relaxed);
     }
 
     pub(crate) fn record_rejected(&self) {
+        self.touch();
         self.rejected.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -196,7 +249,19 @@ impl CaptureStats {
             skipped: self.skipped.load(Ordering::Relaxed),
             rejected: self.rejected.load(Ordering::Relaxed),
             bytes: self.bytes.load(Ordering::Relaxed),
+            silent_for: self.silent_for(),
         }
+    }
+
+    /// Time since the last call from ScreenCaptureKit (F-007.31).
+    ///
+    /// Saturates rather than panicking if the two reads straddle a store: the
+    /// answer only has to be good enough to tell "milliseconds" from
+    /// "minutes".
+    fn silent_for(&self) -> Duration {
+        let now = u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let last = self.last_activity_ms.load(Ordering::Relaxed);
+        Duration::from_millis(now.saturating_sub(last))
     }
 }
 
@@ -337,6 +402,31 @@ mod tests {
     fn average_frame_size_of_an_empty_session_is_zero_not_a_panic() {
         let snapshot = CaptureStats::default().snapshot();
         assert_eq!(snapshot.average_frame_bytes(), 0);
+    }
+
+    /// F-007.31: the log line has to answer "is the stream still talking to
+    /// us", and every kind of call counts as talking — including the idle
+    /// frames an untouched Mac produces, which carry no picture at all.
+    #[test]
+    fn f007_31_every_kind_of_call_resets_the_silence_clock() {
+        for (what, call) in [
+            ("a frame", &CaptureStats::record_first_frame as &dyn Fn(&CaptureStats)),
+            ("an idle frame", &CaptureStats::record_skipped),
+            ("an unusable frame", &CaptureStats::record_rejected),
+        ] {
+            let stats = CaptureStats::default();
+            std::thread::sleep(Duration::from_millis(30));
+            assert!(
+                stats.snapshot().silent_for >= Duration::from_millis(20),
+                "before anything arrives, the clock measures the age of the counters"
+            );
+
+            call(&stats);
+            assert!(
+                stats.snapshot().silent_for < Duration::from_millis(20),
+                "{what} must count as the stream talking to us"
+            );
+        }
     }
 
     #[test]

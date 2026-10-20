@@ -31,7 +31,7 @@ use tracing::{debug, info, trace, warn};
 use super::backoff::Backoff;
 use super::placeholder::{self, Placeholder};
 use super::recovery::{FailureReporter, Report};
-use super::watchdog::StallWatchdog;
+use super::watchdog::{StallWatchdog, Stalled};
 use super::{CaptureStats, DisplayId, DisplayInfo, Frame, FrameSource, FrameStream, PixelFormat};
 
 /// Backoff bounds for stream recovery (F-007.3): quick first retry, capped so a
@@ -53,6 +53,30 @@ const WATCHDOG_STALL_THRESHOLD: Duration = Duration::from_secs(3);
 /// one transient bad sample on an idle desktop from triggering a rebuild, and
 /// keeps the watchdog honest at `--max-fps 1` (F-007.14a).
 const WATCHDOG_MIN_REJECTIONS: u64 = 10;
+
+/// Floor for the silence threshold (F-007.30).
+///
+/// A healthy stream calls the delegate at `max_fps`, idle desktop or not, so
+/// any quiet beyond a second is already abnormal at a sane frame rate. The
+/// floor sits well above that because the cost of being wrong is asymmetric: a
+/// false alarm rebuilds a working stream, and the field evidence only resolves
+/// to 10 s (the stats interval), where a healthy day showed no quiet at all
+/// (F-007 §8h).
+const SILENCE_FLOOR: Duration = Duration::from_secs(5);
+
+/// How many frame intervals of quiet count as silence, for rates so low that
+/// `SILENCE_FLOOR` would be shorter than a few frames (F-007.30 forbids a
+/// hardcoded threshold for exactly this reason: at `--max-fps 1`, five seconds
+/// of quiet is five frames, and at `--max-fps 30` it is a hundred and fifty).
+const SILENCE_FRAME_INTERVALS: u32 = 30;
+
+/// The silence threshold for a given frame rate: whichever is longer.
+fn silence_threshold(max_fps: u32) -> Duration {
+    let interval = Duration::from_secs(1)
+        .checked_div(max_fps.max(1))
+        .unwrap_or(SILENCE_FLOOR);
+    SILENCE_FLOOR.max(interval * SILENCE_FRAME_INTERVALS)
+}
 
 /// How many frames ScreenCaptureKit may buffer. Low, because we coalesce
 /// anyway and a deep queue only adds latency.
@@ -651,13 +675,14 @@ struct SupervisorParams {
 
 /// Why the supervisor decided the current stream has to be rebuilt.
 ///
-/// Two triggers, because ScreenCaptureKit has two ways of failing (F-007 §8).
+/// Three triggers, because ScreenCaptureKit has three ways of failing, and
+/// each one was discovered the hard way (F-007 §8, §8g).
 enum Trigger {
     /// `did_stop_with_error`: the framework told us the stream stopped.
     Reported(String),
-    /// The stream never stopped but produces only unusable samples — the
-    /// failure mode that opening the laptop lid actually causes (F-007.14).
-    Stalled(Duration),
+    /// The stream never stopped but delivers nothing usable — either junk
+    /// samples (F-007.14) or nothing at all (F-007.30).
+    Stalled(Stalled),
 }
 
 /// Owns the live stream, rebuilding it after an unexpected stop until asked to
@@ -679,7 +704,8 @@ async fn supervise(params: SupervisorParams) {
     let mut current = initial;
     let mut backoff = Backoff::new(RECOVERY_MIN_BACKOFF, RECOVERY_MAX_BACKOFF);
     let mut reporter = FailureReporter::new(FAILURE_REPORT_INTERVAL);
-    let mut watchdog = StallWatchdog::new(WATCHDOG_STALL_THRESHOLD, WATCHDOG_MIN_REJECTIONS);
+    let silence = silence_threshold(max_fps);
+    let mut watchdog = StallWatchdog::new(WATCHDOG_STALL_THRESHOLD, WATCHDOG_MIN_REJECTIONS, silence);
 
     let mut ticker = tokio::time::interval(WATCHDOG_POLL);
     // `interval` yields its first tick immediately; spend it here so the loop
@@ -710,10 +736,20 @@ async fn supervise(params: SupervisorParams) {
             Trigger::Reported(reason) => {
                 warn!(%reason, display = display_id.0, "capture stream stopped unexpectedly; recovering");
             }
-            Trigger::Stalled(elapsed) => warn!(
+            // F-007.32: the two stalls are different failures with different
+            // causes, so they must not share a line. A mute stream reported as
+            // "stale content filter?" would send the next diagnosis down the
+            // same wrong path this one took.
+            Trigger::Stalled(Stalled::OnlyRejects(elapsed)) => warn!(
                 display = display_id.0,
                 stalled_for_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
                 "capture stream is alive but delivering no usable frames (stale content filter?); recovering"
+            ),
+            Trigger::Stalled(Stalled::Silent(elapsed)) => warn!(
+                display = display_id.0,
+                silent_for_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
+                threshold_ms = u64::try_from(silence.as_millis()).unwrap_or(u64::MAX),
+                "capture stream stopped calling us entirely (no frames, no idle, no rejects); recovering"
             ),
         }
 
@@ -960,6 +996,9 @@ impl ScreenCaptureKitSource {
                     skipped_idle = snapshot.skipped,
                     rejected = snapshot.rejected,
                     avg_frame_bytes = snapshot.average_frame_bytes(),
+                    // F-007.31: so a frozen stream is readable from one line.
+                    // Diagnosing §8g took diffing two lines ten seconds apart.
+                    silent_for_ms = u64::try_from(snapshot.silent_for.as_millis()).unwrap_or(u64::MAX),
                     "capture stats"
                 );
             }
@@ -970,6 +1009,24 @@ impl ScreenCaptureKitSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// F-007.30 forbids a hardcoded silence threshold, because the same number
+    /// cannot be right at 30 fps and at `--max-fps 1`.
+    #[test]
+    fn f007_30_the_silence_threshold_follows_the_frame_rate() {
+        assert_eq!(silence_threshold(60), SILENCE_FLOOR, "the floor governs sane rates");
+        assert_eq!(silence_threshold(30), SILENCE_FLOOR);
+        assert_eq!(
+            silence_threshold(2),
+            Duration::from_secs(15),
+            "at 2 fps, 30 frames is 15 s — a 5 s alarm would fire on a healthy stream"
+        );
+        assert_eq!(silence_threshold(1), Duration::from_secs(30));
+        assert!(
+            silence_threshold(0) >= SILENCE_FLOOR,
+            "a nonsense frame rate must not divide by zero"
+        );
+    }
 
     const BPP: usize = 4;
 
