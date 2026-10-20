@@ -876,6 +876,61 @@ w ogóle nie startuje. Dopóki F-007.30 nie jest zrobione, klient widzi
 zamrożoną klatkę bez żadnego wyjaśnienia — czyli dokładnie to, przed czym
 F-007.27 miało chronić.
 
+## 8h. Pomiar w boju (2026-10-20) — pierwszy pełny dzień bez zacięcia
+
+Zgłoszenie właściciela: „działa lepiej, dziś cały dzień ani razu się nie
+zacięło". Log `/tmp/stream5.log` (7,7 MB, 4662 linie statystyk) to potwierdza
+i pozwala powiedzieć, o ile dokładnie lepiej.
+
+**Przebieg:** 08:07:05Z → 21:04:05Z, czyli **12 godzin 57 minut** jednym
+procesem, na buildzie z iteracją 1e.
+
+| Co | Ile |
+|---|---|
+| Klatki przechwycone (`received`) | 942 593 |
+| **Najdłuższy postój `received`** | **0 s** — rósł między każdą parą kolejnych próbek przez 13 godzin |
+| Nieoczekiwane zatrzymania strumienia | 0 |
+| Wykrycia zastoju, próby odzyskiwania | 0 |
+| Odrzucone klatki (`rejected`) | 0 |
+| Sesje klienta | 1 przyjęta, 0 rozłączeń — jedna sesja trzymana ~12 h |
+| Cykle suppress output (minimalizacje okna) | 34, najdłuższy **3 h 52 min** (`paused_ms=13951208 skipped_frames=137526`) |
+
+**F-007.26 zaliczone w boju.** `holding the display awake caffeinate_pid=76540`
+o 08:55:11Z i **ani jednej linii zwolnienia** do końca przebiegu — blokada
+trzymana ciągle przez 12 godzin 9 minut, przy jednym podłączonym kliencie.
+Wcześniejsza para linii o 08:55:08/08:55:09 to nieudane `accept` (`Connection
+reset by peer` w finalize) — czyli poprawne zachowanie: klient się podłączył,
+odpadł, blokada poszła za nim i wróciła przy udanej próbie 2 sekundy później.
+
+**F-007.28 zaliczone w boju, i to w gorszym wariancie, niż zakładał spec.**
+Przebieg nie skończył się czysto: nie ma `interrupted, shutting down` ani
+`released the display`, więc `Drop` się nie wykonał (prawdopodobnie zamknięte
+okno terminala, czyli SIGHUP). Mimo tego po śmierci procesu w systemie **nie
+został żaden `caffeinate`** — `-w <pid serwera>` zrobił dokładnie to, po co
+został wybrany przy approve.
+
+**Czego ten dzień NIE dowodzi — uczciwie.** Przez całą dobę
+`PreventUserIdleDisplaySleep` trzymał też inny proces właściciela
+(`Vorssaint`, asercja licząca 24 h 20 min w momencie pomiaru). Nasza blokada
+jest w logu udokumentowana i nieprzerwana, ale dzisiejszy brak uśpienia ekranu
+**nie izoluje jej jako przyczyny** — ekran i bez nas miał powód nie zasnąć.
+Pełna izolacja wymaga dnia bez tamtej asercji; do tego czasu dowodem na
+F-007.26 pozostaje `tests/display_wake_lock.rs` plus obecność naszej asercji
+w `pmset`.
+
+**Co nadal jest niezweryfikowane, bo nie było na czym.** Przez 13 godzin nie
+zdarzyła się **ani jedna** awaria przechwytywania. To dobra wiadomość i zła
+naraz: F-007.25 („obraz wraca bez rozłączania klienta") i żywa publikacja
+placeholdera z F-007.27 wymagają awarii, a tej nie było. Oba zostają
+niezweryfikowane i czekają na sondę z F-007.34, która wywoła awarię na
+żądanie, zamiast jej wyczekiwać.
+
+**Co to mówi o iteracji 1f (§8g).** Cisza strumienia nie wróciła ani razu, co
+zgadza się z diagnozą: wyzwalaczem był drugi proces przechwytujący ten sam
+ekran, a nie samo upływanie czasu. Luka w watchdogu jest więc rzadka, ale
+nadal otwarta — i nadal kończy się zamrożonym obrazem, którego nic nie
+naprawia poza restartem.
+
 ## 9. Status
 
 **Approved** (2026-07-27) — z zakresem pierwszej iteracji poniżej.
@@ -989,6 +1044,16 @@ z decyzją o mechanizmie: `caffeinate -d -w <pid>` jako proces potomny.
 Zrobione tego samego dnia — wynik w §8f. **AC-9 zaliczone automatycznie**,
 część ręczna (sesja dłuższa niż `displaysleep`) czeka na spokojny moment,
 tak samo jak F-007.25 i żywe potwierdzenie F-007.27.
+
+**Pomiar w boju 2026-10-20 (§8h):** pierwszy pełny dzień bez zacięcia —
+12 h 57 min jednym procesem, 942 593 klatki, **najdłuższy postój `received`
+0 s**, zero zatrzymań strumienia. **F-007.26 i F-007.28 zaliczone w boju**
+(blokada trzymana nieprzerwanie 12 h 9 min; po nieczystej śmierci procesu nie
+został żaden `caffeinate`). **AC-9 zaliczone z zastrzeżeniem**: tę dobę
+`PreventUserIdleDisplaySleep` trzymał też inny proces właściciela, więc brak
+uśpienia nie izoluje naszej asercji jako przyczyny. F-007.25 i żywy placeholder
+z F-007.27 **nadal niezweryfikowane** — przez 13 godzin nie było ani jednej
+awarii, na której dałoby się je zobaczyć.
 
 **Iteracja 1f: Draft** (2026-10-19) — F-007.30 … F-007.34 i nowe AC-10,
 z pomiaru w boju (§8g): strumień ScreenCaptureKit **zamilkł bez błędu**
