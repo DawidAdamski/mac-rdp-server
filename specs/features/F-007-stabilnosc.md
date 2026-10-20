@@ -1,9 +1,9 @@
 # F-007 — Stabilność: przeżyć rekonfigurację ekranu, sen/budzenie i reconnect
 
 - **Fala:** 3 (wyciągnięta na początek Fali 3, bo blokuje realne używanie)
-- **Status:** Implemented (iteracje 1, 1b, 1c, 1d, 1e) — AC-1/2/5/7/8 zaliczone,
-  AC-3 zaliczone automatycznie, AC-9 w części automatycznej, AC-6 do weryfikacji
-  zamykającej falę, AC-4 czeka na F-006
+- **Status:** Implemented (iteracje 1, 1b, 1c, 1d, 1e, 1f) — AC-1/2/5/7/8
+  zaliczone, AC-3 i AC-10 zaliczone automatycznie, AC-9 w części automatycznej,
+  AC-6 do weryfikacji zamykającej falę, AC-4 czeka na F-006
 - **Data:** 2026-07-24
 - **ADR:** ADR-0002 (SCK), ADR-0001 (silnik)
 - **Powód powstania:** otwarcie klapy MacBooka w trakcie sesji zabiło strumień
@@ -843,7 +843,7 @@ pierwszy zamilkł na zawsze. To pasuje do tego, co już raz zmierzyliśmy przy
 międzyprocesowy. Jeśli to się potwierdzi, awaria jest **odtwarzalna na
 żądanie**, czyli pierwsza z tej rodziny, której nie trzeba wyczekiwać.
 
-### Zmiana speca — iteracja 1f (**Draft** 2026-10-19, czeka na approve)
+### Zmiana speca — iteracja 1f (**Approved** 2026-10-20)
 
 - **F-007.30** (MUST) Watchdog MUSI uznać strumień za martwy także wtedy, gdy
   **żaden** licznik nie rośnie — ani `received`, ani `skipped_idle`, ani
@@ -930,6 +930,55 @@ zgadza się z diagnozą: wyzwalaczem był drugi proces przechwytujący ten sam
 ekran, a nie samo upływanie czasu. Luka w watchdogu jest więc rzadka, ale
 nadal otwarta — i nadal kończy się zamrożonym obrazem, którego nic nie
 naprawia poza restartem.
+
+## 8i. Wynik iteracji 1f (2026-10-20) — AC-10 zaliczone w części automatycznej
+
+**F-007.34 najpierw**, bo bez sondy reszta nie dałaby się zmierzyć.
+`specs/probes/f007-silent-stream/run.sh` odtwarza awarię z §8g przez to, co ją
+wywołało w boju: drugi proces przechwytujący ten sam ekran, który się kończy.
+**Dwa przebiegi, dwa razy odtworzona** — więc „odtwarzalna na żądanie" nie
+jest twierdzeniem z jednej próby:
+
+| Przebieg | Cisza wykryta po | Przebudowa | `received` |
+|---|---|---|---|
+| 1 | 5000 ms | 0,62 s | 294 → 2769 |
+| 2 | 5499 ms | 0,59 s | 298 → 2769 |
+
+**F-007.30 i F-007.32 zaliczone.** Log z przebiegu 1:
+
+```
+21:16:48.063  WARN capture stream stopped calling us entirely (no frames, no idle,
+              no rejects); recovering display=5 silent_for_ms=5000 threshold_ms=5000
+21:16:48.685  INFO capture recovered display=5
+```
+
+Komunikat nazywa dokładnie ten wyzwalacz i podaje próg, więc następna
+diagnoza nie pójdzie ścieżką „stale content filter?", którą ta awaria
+fałszywie sugerowała. Cała przerwa to **około sześciu sekund** — przedtem było
+to zamrożenie do końca życia procesu.
+
+**F-007.31 zaliczone.** `silent_for_ms` jest w linii statystyk:
+`received=2769 … silent_for_ms=34`. „Zamarznięte" czyta się teraz z jednej
+linii; w §8g trzeba było porównywać dwie z odstępu 10 sekund.
+
+**F-007.33 zaliczone testami jednostkowymi.** Trzydzieści sekund pełnej ciszy
+przy odpytywaniu co 500 ms daje **sześć** wyzwoleń (raz na okno), nie
+sześćdziesiąt, a `reset()` po przebudowie zeruje zegar ciszy, więc nowy
+strumień nie jest sądzony za ciszę starego.
+
+**Jak próg jest liczony.** `silence_threshold(max_fps)` = większe z: 5 sekund
+albo 30 interwałów klatkowych. Przy 30 fps wychodzi 5 s, przy `--max-fps 1`
+— 30 s. Zdrowy strumień woła delegata z częstotliwością `max_fps` niezależnie
+od tego, czy cokolwiek się zmienia na ekranie, więc cisza dłuższa niż
+trzydzieści klatek nie ma zdrowego wytłumaczenia. Dowód z boju: przez
+12 godzin 57 minut zdrowej pracy (§8h) nie było ani jednej przerwy widocznej
+w rozdzielczości 10 sekund.
+
+**Czego sonda nie dowodzi.** Nie ma klienta RDP, więc druga połowa AC-10 —
+„obraz wraca u podłączonego klienta bez rozłączania" — nadal jest
+niezweryfikowana, razem z F-007.25 i żywą publikacją placeholdera z F-007.27.
+Ale teraz wszystkie trzy da się zamknąć jednym testem ręcznym na dwie minuty,
+bez czekania na przypadek: **C-3** w `specs/testy-reczne.md`.
 
 ## 9. Status
 
@@ -1055,11 +1104,16 @@ uśpienia nie izoluje naszej asercji jako przyczyny. F-007.25 i żywy placeholde
 z F-007.27 **nadal niezweryfikowane** — przez 13 godzin nie było ani jednej
 awarii, na której dałoby się je zobaczyć.
 
-**Iteracja 1f: Draft** (2026-10-19) — F-007.30 … F-007.34 i nowe AC-10,
+**Iteracja 1f: Implemented** (2026-10-20, approve i wykonanie tego samego dnia
+— właściciel wskazał ją jako następną rzecz do zrobienia, przed F-112).
+**AC-10 zaliczone w części automatycznej**, dwa przebiegi sondy, przerwa
+skrócona z „na zawsze" do ~6 sekund; wynik w §8i. Część kliencka AC-10,
+F-007.25 i żywy placeholder z F-007.27 czekają na test ręczny **C-3**, który
+od teraz zajmuje dwie minuty i nie wymaga czekania na awarię. — F-007.30 … F-007.34 i nowe AC-10,
 z pomiaru w boju (§8g): strumień ScreenCaptureKit **zamilkł bez błędu**
 i watchdog tego nie widzi, bo jego sygnałem awarii są odrzuty, a w tej awarii
 nie przychodzi nic. 14 minut zamrożonego obrazu przy podłączonym kliencie,
-reconnect nie pomaga. Czeka na approve właściciela.
+reconnect nie pomaga.
 
 **Co §8e potwierdziło o iteracji 1d:** odzyskiwanie zadziałało w boju —
 130 prób, powrót sam z siebie, log nie zalany (głośno raz na 30 s). Przy tym

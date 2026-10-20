@@ -383,6 +383,51 @@ pokazuje obraz od razu.
 - Co widziałem:
 - Log:
 
+## C-3 — Obraz wraca u podłączonego klienta (F-007 AC-10, F-007.25, F-007.27)
+
+**To jest teraz najtańszy test ręczny w całym dokumencie i domyka trzy rzeczy
+naraz.** Awarii nie trzeba wyczekiwać — sonda wywołuje ją na żądanie, w ciągu
+kilku sekund, bez gaszenia ekranu.
+
+**Co zrobić.**
+
+1. Uruchom serwer tak jak zwykle (patrz „Przygotowanie" §3).
+2. Połącz się z `mstsc` i **zostaw okno widoczne** — nie minimalizuj go.
+   Minimalizacja włącza suppress output i wtedy nic nie zobaczysz; tak
+   przepadły dwa poprzednie podejścia do F-007.25.
+3. Patrząc na okno klienta, uruchom w drugim terminalu:
+
+   ```sh
+   ./target/release/mac-rdp-server --port 33900
+   ```
+
+   Poczekaj, aż napisze `first frame received`, i zatrzymaj je przez Ctrl-C.
+
+**Co ma się stać.** Po kilku sekundach obraz zamiera, potem — **bez
+rozłączania i bez restartu** — wraca sam. W logu serwera:
+
+```
+WARN  capture stream stopped calling us entirely (no frames, no idle, no rejects); recovering
+INFO  capture recovered display=5
+```
+
+Zmierzone automatycznie: cisza wykryta po 5 s, strumień przebudowany w 0,6 s,
+czyli przerwa rzędu sześciu sekund (F-007 §8i).
+
+**Na co patrzeć oprócz tego, czy wróciło.** Jeśli przerwa przeciągnie się
+powyżej trzech sekund, klient MA pokazać **pomarańczowy ekran z dwiema
+pauzami** zamiast zamrożonej klatki (F-007.27). Przy sześciosekundowej
+przerwie może mignąć bardzo krótko albo nie zdążyć się pojawić — i to jest
+poprawne. Napisz, co widziałeś: zamrożoną klatkę, pomarańczowy ekran, czy nic
+nie zauważyłeś.
+
+**ODPOWIEDŹ:**
+- Wynik:
+- Czy obraz wrócił bez rozłączania:
+- Czy mignął pomarańczowy ekran:
+- Ile trwała przerwa (z zegarka albo z logu):
+- Log:
+
 ---
 
 # Blok D — emoji (F-003a AC-10)

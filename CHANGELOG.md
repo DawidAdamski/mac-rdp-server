@@ -36,6 +36,19 @@ the manifest, or one that has no section in this file.
 - While capture is unavailable, the client is now shown a placeholder saying so
   instead of the last frame it received. A frozen picture with no explanation
   is indistinguishable from a hung server (F-007.27).
+- A capture stream that stops delivering without reporting an error no longer
+  freezes the screen for good. The watchdog needed rejected frames to notice
+  anything, and this failure produces none — not a frame, not an idle frame,
+  not a reject — so nothing was detected and reconnecting could not help,
+  because the stream is shared by the whole process. Measured at thirteen
+  minutes of frozen screen; now the stream is rebuilt about six seconds after
+  it falls silent (F-007.30 … F-007.34).
+
+### Added
+
+- `capture stats` reports `silent_for_ms`, the time since ScreenCaptureKit last
+  called us at all, so a frozen stream is readable from a single log line
+  instead of by diffing two lines ten seconds apart (F-007.31).
 
 ### Changed
 
