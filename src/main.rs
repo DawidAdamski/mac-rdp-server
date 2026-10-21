@@ -34,11 +34,14 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let config = Config::from_cli(&cli)?;
+    let (config, config_source) = Config::from_cli(&cli)?;
     init_logging(&config.log_level)?;
 
     info!(
         version = env!("CARGO_PKG_VERSION"),
+        // F-112.7: the values below are the result; this is where they came
+        // from. Without it, "why is it listening there" needs an experiment.
+        config = %config_source,
         addr = %config.socket_addr(),
         cert = %config.cert_path.display(),
         display = config.display,

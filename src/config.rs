@@ -1,4 +1,5 @@
-//! Configuration: CLI flags over TOML file over defaults (F-001.4).
+//! Configuration: CLI flags over the file named by `--config` over the
+//! default file over built-in defaults (F-001.4, F-112.2).
 
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -29,6 +30,15 @@ pub const DEFAULT_DISPLAY: u32 = 0;
 pub const DEFAULT_MAX_FPS: u32 = 30;
 pub const DEFAULT_LOG_LEVEL: &str = "info";
 
+/// The one file the server reads without being told to (F-112.1), relative
+/// to the home directory.
+///
+/// There is deliberately no search list. A single path is what makes "where
+/// did this value come from" answerable by reading one line of the log
+/// instead of by experiment — which is how the 2026-10-15 measurement had
+/// to be done.
+pub const DEFAULT_CONFIG_FILE: &str = ".config/mac-rdp-server.toml";
+
 // Command line interface. Not a doc comment: clap would put it in `--help`.
 //
 // Every option is `Option<_>` so that "not given on the command line" is
@@ -37,9 +47,19 @@ pub const DEFAULT_LOG_LEVEL: &str = "info";
 #[derive(Debug, Parser, Default)]
 #[command(name = "mac-rdp-server", version, about = "RDP server for macOS")]
 pub struct Cli {
-    /// Path to a TOML configuration file.
+    /// Path to a TOML configuration file. Given, it replaces the default
+    /// file rather than adding to it.
     #[arg(short, long, value_name = "PATH")]
     pub config: Option<PathBuf>,
+
+    /// Ignore the default configuration file (~/.config/mac-rdp-server.toml).
+    ///
+    /// The way past a file that stops the server from starting, without having
+    /// to delete it (F-112.6). Mutually exclusive with --config, because
+    /// "ignore the default file" and "read this one instead" are two answers
+    /// to the same question.
+    #[arg(long, conflicts_with = "config")]
+    pub no_config: bool,
 
     /// Address to listen on [default: 127.0.0.1]
     #[arg(long, value_name = "IP")]
@@ -109,6 +129,72 @@ impl FileConfig {
     }
 }
 
+/// Where the configuration came from, so that the startup log can say it
+/// (F-112.7).
+///
+/// Kept apart from [`Config`] on purpose: the resolved values are what the
+/// server runs on, the source is how it got them. Mixing the two is how a
+/// surprising port turns into a debugging session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigSource {
+    /// A file named by `--config`. Reading it takes the default file out of
+    /// play entirely: one file or the other, never both (F-112.2).
+    Requested(PathBuf),
+    /// The default file, which was there (F-112.1).
+    Default(PathBuf),
+    /// No file was read: there is none, or `--no-config` was given. A normal
+    /// state, and therefore not a warning (F-112.4).
+    Builtin,
+}
+
+impl ConfigSource {
+    /// Decides which file applies, without reading its contents.
+    ///
+    /// `home` is a parameter rather than a read of `HOME` so that the decision
+    /// is testable without touching the real home directory (F-112.9).
+    fn decide(cli: &Cli, home: Option<&Path>) -> Self {
+        if let Some(path) = cli.config.as_deref() {
+            return Self::Requested(path.to_owned());
+        }
+        if cli.no_config {
+            return Self::Builtin;
+        }
+        // F-112.3: no HOME means there is no default file. Not an error and
+        // not a panic — every other way of configuring the server still works.
+        let Some(home) = home else {
+            return Self::Builtin;
+        };
+        let path = home.join(DEFAULT_CONFIG_FILE);
+        match path.try_exists() {
+            // F-112.4: the ordinary case, and silent.
+            Ok(false) => Self::Builtin,
+            // It is there, or we cannot even tell. Either way the user wrote
+            // that file meaning it to be read, so read it and let any failure
+            // be loud rather than working on defaults behind their back
+            // (F-112.5).
+            _ => Self::Default(path),
+        }
+    }
+
+    /// The file to read, if any.
+    #[must_use]
+    pub fn path(&self) -> Option<&Path> {
+        match self {
+            Self::Requested(path) | Self::Default(path) => Some(path),
+            Self::Builtin => None,
+        }
+    }
+}
+
+impl std::fmt::Display for ConfigSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Requested(path) | Self::Default(path) => write!(f, "{}", path.display()),
+            Self::Builtin => f.write_str("built-in defaults"),
+        }
+    }
+}
+
 /// Fully resolved configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -157,13 +243,25 @@ impl Config {
         })
     }
 
-    /// Loads the file named by `--config`, if any, and resolves everything.
-    pub fn from_cli(cli: &Cli) -> Result<Self> {
-        let file = match cli.config.as_deref() {
+    /// Loads whichever file applies and resolves everything (F-112.2).
+    ///
+    /// Returns the source next to the configuration because the caller has to
+    /// log it: the log line is the whole of F-112.7.
+    pub fn from_cli(cli: &Cli) -> Result<(Self, ConfigSource)> {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        Self::from_cli_in(cli, home.as_deref())
+    }
+
+    /// [`Self::from_cli`] with the home directory passed in, so that the whole
+    /// path — not just the decision — is testable without the real `$HOME`
+    /// (F-112.9).
+    fn from_cli_in(cli: &Cli, home: Option<&Path>) -> Result<(Self, ConfigSource)> {
+        let source = ConfigSource::decide(cli, home);
+        let file = match source.path() {
             Some(path) => FileConfig::load(path)?,
             None => FileConfig::default(),
         };
-        Self::resolve(cli, &file)
+        Ok((Self::resolve(cli, &file)?, source))
     }
 
     #[must_use]
@@ -243,6 +341,7 @@ mod tests {
             max_fps: Some(3),
             log_level: Some("trace".to_owned()),
             config: None,
+            no_config: false,
             test_pattern: None,
             encoder: Some(EncoderKind::Full),
             // Not a configuration key: `--check-permissions` is a mode that
@@ -295,6 +394,138 @@ mod tests {
     fn unknown_toml_keys_are_an_error_not_a_silent_no_op() {
         let result = toml::from_str::<FileConfig>("prot = 3390\n");
         assert!(result.is_err(), "a typo in the config must be reported");
+    }
+
+    /// A throwaway home directory: the tag keeps the tests apart from each
+    /// other, the process id keeps two runs apart.
+    fn temp_home(tag: &str) -> PathBuf {
+        let home = std::env::temp_dir().join(format!("mac-rdp-config-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join(".config")).expect("create a throwaway home");
+        home
+    }
+
+    fn write_default_config(home: &Path, body: &str) -> PathBuf {
+        let path = home.join(DEFAULT_CONFIG_FILE);
+        std::fs::write(&path, body).expect("write the default config file");
+        path
+    }
+
+    /// F-112.1, AC-1: the measurement from 2026-10-15 came out the other way
+    /// round — the file was there and the server listened on the defaults.
+    #[test]
+    fn f112_1_the_default_file_is_read_without_any_flag() {
+        let home = temp_home("default");
+        let path = write_default_config(&home, "bind_addr = \"0.0.0.0\"\nport = 33891\n");
+
+        let (cfg, source) = Config::from_cli_in(&Cli::default(), Some(&home)).expect("resolve");
+
+        assert_eq!(cfg.socket_addr().to_string(), "0.0.0.0:33891");
+        assert_eq!(source, ConfigSource::Default(path));
+    }
+
+    /// F-112.2, AC-2: a flag beats the default file, and beats only the key it
+    /// names.
+    #[test]
+    fn f112_2_a_flag_wins_over_the_default_file() {
+        let home = temp_home("flag");
+        write_default_config(&home, "bind_addr = \"0.0.0.0\"\nport = 33891\n");
+        let cli = Cli {
+            bind_addr: Some("127.0.0.1".parse().expect("valid IP")),
+            ..Cli::default()
+        };
+
+        let (cfg, _) = Config::from_cli_in(&cli, Some(&home)).expect("resolve");
+
+        assert_eq!(cfg.bind_addr.to_string(), "127.0.0.1", "the flag wins");
+        assert_eq!(cfg.port, 33891, "and leaves the rest of the file alone");
+    }
+
+    /// F-112.2, AC-3: one file or the other, never both. The default file
+    /// carries a key the requested one does not, so reading both would show.
+    #[test]
+    fn f112_2_a_requested_file_replaces_the_default_file() {
+        let home = temp_home("requested");
+        write_default_config(&home, "bind_addr = \"0.0.0.0\"\nport = 33891\n");
+        let requested = home.join("elsewhere.toml");
+        std::fs::write(&requested, "port = 4242\n").expect("write the requested file");
+        let cli = Cli {
+            config: Some(requested.clone()),
+            ..Cli::default()
+        };
+
+        let (cfg, source) = Config::from_cli_in(&cli, Some(&home)).expect("resolve");
+
+        assert_eq!(cfg.port, 4242);
+        assert_eq!(
+            cfg.bind_addr.to_string(),
+            DEFAULT_BIND_ADDR,
+            "the default file must not be read at all, so its bind_addr cannot leak in"
+        );
+        assert_eq!(source, ConfigSource::Requested(requested));
+    }
+
+    /// F-112.4, AC-4: no file is the normal state, not a complaint.
+    #[test]
+    fn f112_4_no_default_file_means_built_in_defaults() {
+        let home = temp_home("absent");
+
+        let (cfg, source) = Config::from_cli_in(&Cli::default(), Some(&home)).expect("resolve");
+
+        assert_eq!(cfg.port, DEFAULT_PORT);
+        assert_eq!(source, ConfigSource::Builtin);
+    }
+
+    /// F-112.5, AC-5: a typo in the file the user wrote stops the server. Quiet
+    /// work on the defaults would be worse — it hides the typo for as long as
+    /// nobody notices the port.
+    #[test]
+    fn f112_5_an_unparsable_default_file_is_an_error() {
+        let home = temp_home("broken");
+        let path = write_default_config(&home, "bind_addr = \"not-an-address\"\n");
+
+        let error = Config::from_cli_in(&Cli::default(), Some(&home)).expect_err("must not start");
+
+        let message = format!("{error:#}");
+        assert!(
+            message.contains(&path.display().to_string()),
+            "the message must name the file: {message}"
+        );
+        assert!(
+            message.contains("parsing config file"),
+            "and say what went wrong with it: {message}"
+        );
+    }
+
+    /// F-112.3: without `HOME` there is simply no default file.
+    #[test]
+    fn f112_3_without_home_there_is_no_default_file() {
+        assert_eq!(ConfigSource::decide(&Cli::default(), None), ConfigSource::Builtin);
+    }
+
+    /// F-112.6: the escape hatch, tested on exactly the file that would
+    /// otherwise stop the server — that is the situation it exists for.
+    #[test]
+    fn f112_6_no_config_skips_the_default_file() {
+        let home = temp_home("skip");
+        write_default_config(&home, "bind_addr = \"not-an-address\"\n");
+        let cli = Cli {
+            no_config: true,
+            ..Cli::default()
+        };
+
+        let (cfg, source) = Config::from_cli_in(&cli, Some(&home)).expect("must start anyway");
+
+        assert_eq!(cfg.port, DEFAULT_PORT);
+        assert_eq!(source, ConfigSource::Builtin);
+    }
+
+    /// F-112.6: the two flags answer the same question, so asking both ways at
+    /// once is a usage error rather than a silent precedence rule.
+    #[test]
+    fn f112_6_no_config_and_config_together_are_rejected() {
+        let result = Cli::try_parse_from(["mac-rdp-server", "--no-config", "--config", "some.toml"]);
+        assert!(result.is_err(), "--no-config with --config must not be accepted");
     }
 
     #[test]
