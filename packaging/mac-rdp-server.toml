@@ -1,9 +1,13 @@
 # Example configuration for mac-rdp-server.
 #
 # Nothing here is required: every key has a default, and anything given on the
-# command line wins over this file. Pass it explicitly:
+# command line wins over this file.
 #
-#     mac-rdp-server --config ~/.config/mac-rdp-server.toml
+# Copied to ~/.config/mac-rdp-server.toml it is read at every start, with no
+# flag. Anywhere else, point at it with --config — which then replaces the
+# default file rather than adding to it. A file that cannot be parsed stops the
+# server with a message naming it; --no-config gets past one without deleting
+# it.
 
 # Who may connect. 127.0.0.1 means "only this Mac" and is the default.
 #

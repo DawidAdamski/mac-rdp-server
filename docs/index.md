@@ -182,11 +182,12 @@ xfreerdp /v:your-mac.local:3389 /cert:ignore -nla
 
 ## Configuration
 
-Every option can be given on the command line or in a TOML file passed with
-`--config`. Command line wins over the file; the file wins over the defaults.
+Every option can be given on the command line or in a TOML file. The server
+reads `~/.config/mac-rdp-server.toml` by itself, so settings are given once
+rather than typed at every start:
 
 ```toml
-# ~/.config/mac-rdp-server.toml   (any path you like; pass it with --config)
+# ~/.config/mac-rdp-server.toml   — read without being asked
 bind_addr = "127.0.0.1"
 port      = 3389
 display   = 0          # index, in the order `mac-rdp-server` logs at startup
@@ -195,7 +196,30 @@ log_level = "info"
 encoder   = "damage"   # "damage" sends only what changed, "full" sends whole frames
 ```
 
-`mac-rdp-server --help` lists all of them. `MAC_RDP_LOG` overrides
+Precedence is **command line > the file named by `--config` > that default
+file > the defaults**. `--config` *replaces* the default file instead of adding
+to it: one file is read, or the other, never both.
+
+A missing default file is normal and silent. One that exists but cannot be read
+or parsed stops the server with a message naming the file — a typo in it is not
+worth a day of wondering where a setting went. `--no-config` gets past such a
+file without deleting it.
+
+The startup log line says which of the two it was, so "where did that value
+come from" never needs an experiment:
+
+```
+INFO starting mac-rdp-server config=/Users/you/.config/mac-rdp-server.toml addr=0.0.0.0:33891 ...
+INFO starting mac-rdp-server config=built-in defaults addr=127.0.0.1:3389 ...
+```
+
+> **ℹ️ Note**
+>
+> Reading that file without being asked is **not in a release yet**. On 0.1.1 —
+> the version the tap installs — the path is ignored unless you point at it:
+> `mac-rdp-server --config ~/.config/mac-rdp-server.toml`.
+
+`mac-rdp-server --help` lists every option. `MAC_RDP_LOG` overrides
 `log_level`, so a bad config file can always be overridden from the shell.
 
 ## What does not work yet

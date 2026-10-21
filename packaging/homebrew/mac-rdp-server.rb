@@ -95,14 +95,14 @@ class MacRdpServer < Formula
       minus button, add the current one, restart the server. The same thing
       happens when your terminal application updates itself.
 
-      Configuration is optional; pass a TOML file with --config. The TLS
-      certificate is generated on first run in
+      Configuration is optional. The TLS certificate is generated on first run
+      in
         ~/Library/Application Support/mac-rdp-server/
-      An example configuration to copy and edit. There is no default
-      location: the file is read only when you point at it, so the second
-      line below is not optional.
+      An example configuration to copy and edit. That path is read without
+      being asked for, so copying the file is all it takes; a file elsewhere
+      still works with --config, and --no-config ignores this one.
         cp #{opt_pkgshare}/examples/mac-rdp-server.toml ~/.config/mac-rdp-server.toml
-        mac-rdp-server --config ~/.config/mac-rdp-server.toml
+      The startup log line says which file the settings came from.
     EOS
   end
 
