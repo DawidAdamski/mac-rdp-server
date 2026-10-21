@@ -8,7 +8,7 @@
 - **Uzupełnienie 2026-09-17 (Verified (2026-09-18, właściciel)):** F-003.22–F-003.26 — reset stanu wejścia
   (Synchronize, koniec połączenia). Źródło: przegląd `02-ms-rdpbcgr.md` §4 P-04.
   Wymagania F-003.1–F-003.21 bez zmian.
-- **Uzupełnienie 2026-10-21 (Draft):** F-003.27–F-003.32 — licznik kliknięć
+- **Uzupełnienie 2026-10-21 (Implemented 2026-10-21):** F-003.27–F-003.32 — licznik kliknięć
   (dwuklik). Źródło: zgłoszenie właściciela + pomiar `MOUSE_EVENT_CLICK_STATE`.
   Dotyczy niezaliczonej połowy AC-3. Pozostałe wymagania bez zmian.
 
@@ -183,7 +183,8 @@ po stronie klienta.
 
 ### Licznik kliknięć (dwuklik) — uzupełnienie 2026-10-21
 
-**Status tej grupy: Draft (2026-10-21)** — czeka na approve właściciela.
+**Status tej grupy: Implemented (2026-10-21).** Approved 2026-10-21 (właściciel).
+Czeka na AC-17 … AC-20 (blok H w `specs/testy-reczne.md`) do statusu Verified.
 Pozostałe wymagania F-003 zachowują swój status.
 
 Kontekst. AC-3 wymaga dwukliku od 2026-07-24 i został zaliczony 2026-07-27
@@ -369,6 +370,34 @@ Testy jednostkowe (część CI, AC-11) i checklista ręczna (AC-12…AC-15):
    (ciasno, bo klient RDP wysyła pozycję bezwzględną, a nie drżącą rękę na
    myszy), jako stała nazwana w `state.rs`, do skorygowania po AC-17/AC-18,
    jeśli dwuklik będzie „gubiony" przy minimalnym ruchu kursora.
+
+**Uzupełnienie 2026-10-21 — licznik kliknięć (F-003.27 … F-003.32): Implemented.**
+
+| wymaganie | gdzie | czym pokryte |
+|---|---|---|
+| F-003.27 pole ustawione na press **i** release | `cgevent.rs` `build_button_event` | `f003_27_button_events_carry_the_click_count`, `f003_27_an_untouched_event_could_never_be_a_double_click` |
+| F-003.28 ten sam przycisk, w interwale, blisko | `state.rs` `ClickCounter::press` | sześć testów `f003_28_*` (w interwale, na granicy, po czasie, za daleko, na granicy odległości, inny przycisk) |
+| F-003.29 interwał z systemu | `cgevent.rs` `double_click_interval` | `f003_29_the_double_click_interval_comes_from_the_system` — ten test jest **jednocześnie dowodem**, że wywołanie AppKit działa na wątku testowym, czyli nie na głównym i bez `NSApplication` |
+| F-003.30 brak sufitu na 2 | `ClickCounter::press` | `f003_30_a_third_press_counts_three` |
+| F-003.31 reset zeruje licznik | `cgevent.rs` `reset` (po wysłaniu zwolnień, przed następną sesją) | `f003_31_a_reset_forgets_the_sequence` |
+| F-003.32 czysta funkcja z czasem w argumencie | `state.rs` | wszystkie powyższe; `cgevent.rs` tylko ustawia pole |
+
+Dwie decyzje, których spec nie przewidział:
+
+1. **`release` nie jest śledzone per przycisk.** Licznik pamięta ostatnie
+   wciśnięcie, więc jeśli między dwuklikiem lewym a jego zwolnieniem wciśniesz
+   prawy, zwolnienie lewego poniesie 1 zamiast 2. Scenariusz egzotyczny, a
+   śledzenie pięciu przycisków osobno kosztowałoby tyle samo kodu co cała
+   reszta. Zwykły „dwuklik i przeciągnij" (zaznaczanie słowami) działa, bo nic
+   się między nie wciska — jest to osobny przypadek w testach.
+2. **Interwał czytany raz, przy tworzeniu sinka.** Przesunięcie suwaka
+   w Ustawieniach w trakcie sesji zadziała po ponownym połączeniu. Alternatywa
+   to wywołanie AppKit przy każdym kliknięciu; nie warte tego.
+
+Nie zmienione, choć kusiło: komentarz nad `button_event` w `cgevent.rs` nadal
+mówi, że środkowy przycisk nie dochodzi z powodu ADR-0007. To nieprawda od
+2026-10-12 (ADR-0014, F-003.7) — ale to osobna sprawa od tej łatki i nie
+wchodzi w jej commit.
 
 ## 8. Status
 

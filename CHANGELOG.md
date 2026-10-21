@@ -19,6 +19,19 @@ the manifest, or one that has no section in this file.
 
 ### Fixed
 
+- **A double click is now a double click.** Every mouse press the server
+  injected claimed to be the first click of a sequence, so two fast clicks
+  reached applications as two independent single clicks: entering a folder in
+  Finder, or opening one on the Google Drive web page, did nothing. macOS
+  carries the click count in a field of the event that was never set — a fresh
+  press carries 1 and a fresh release carries 0, a value no real mouse sends —
+  and AppKit reports that field to applications as `NSEvent.clickCount`. The
+  count is not in the RDP protocol either, so the server now derives it the way
+  the window server does for real hardware: the same button, pressed again
+  within the interval from System Settings, within a few points of the last
+  press. Clicking two different things quickly still opens neither, and a
+  triple click selects a paragraph (F-003.27 … F-003.32).
+
 - A display sleep no longer freezes the screen for good. ScreenCaptureKit was
   being asked to start and stop capture through a call that waited for a
   callback with no time limit; when the display slept the callback never came

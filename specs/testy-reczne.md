@@ -794,6 +794,75 @@ dziesięciokrotny wzrost ma). W logu **nie powinno** być linii
 
 ---
 
+# Blok H — dwuklik (F-003 AC-17 … AC-20)
+
+Nowe, po naprawie z 2026-10-21. Przyczyna jest zmierzona i poprawka
+przetestowana jednostkowo, ale czy dwuklik **wchodzi do folderu**, może
+powiedzieć tylko ręka na myszy. Cały blok to dwie, trzy minuty.
+
+## H-1 — Dwuklik otwiera folder (F-003 AC-17)
+
+**Po co.** To jest objaw, który zgłosiłeś: „szybki 2 klik nie działa".
+
+**Co zrobić.** W oknie klienta: dwuklik na folderze na pulpicie albo
+w Finderze — ma wejść do środka. Potem to samo na stronie Dysku Google,
+na folderze. **Trzy razy pod rząd**, bo chodzi o powtarzalność, a nie
+o jedno trafienie.
+
+**ODPOWIEDŹ:**
+- Wynik (Finder):
+- Wynik (Dysk Google):
+- Czy któryś z trzech razy nie zadziałał:
+
+---
+
+## H-2 — Dwa kliknięcia w różne rzeczy nie otwierają niczego (F-003 AC-18)
+
+**Po co.** Licznik kliknięć wymaga, by drugi klik padł blisko pierwszego.
+Bez tego warunku dwa szybkie kliknięcia w **różne** foldery otwierałyby ten
+drugi — czyli naprawa jednego błędu zrobiłaby gorszy.
+
+**Co zrobić.** Kliknij raz na jednym folderze, potem **szybko** (szybciej niż
+pół sekundy) raz na innym, wyraźnie dalej. Oba mają się tylko zaznaczyć.
+Nic nie ma się otworzyć.
+
+**ODPOWIEDŹ:**
+- Wynik:
+- Czy coś się otworzyło:
+
+---
+
+## H-3 — Potrójny klik zaznacza akapit (F-003 AC-19)
+
+**Po co.** Licznik nie jest obcięty do dwóch (F-003.30). Jeśli potrójny klik
+działa, to znaczy, że liczy dalej, a nie tylko „zna" dwuklik.
+
+**Co zrobić.** W TextEdit albo w polu tekstowym w przeglądarce kliknij trzy
+razy szybko w akapit. Ma się zaznaczyć cały akapit (albo linia — zależy od
+aplikacji), a nie jedno słowo.
+
+**ODPOWIEDŹ:**
+- Wynik:
+- Co się zaznaczyło:
+
+---
+
+## H-4 — Pojedynczy klik, prawy i przeciąganie bez zmian (F-003 AC-20)
+
+**Po co.** Licznik dotyka **każdego** kliknięcia, więc najgorszy możliwy
+skutek tej zmiany to zepsuty zwykły klik. To jest test na to, że nie zepsuł.
+
+**Co zrobić.** Pojedynczy klik zaznacza ikonę (nie otwiera!). Prawy przycisk
+daje menu kontekstowe. Przeciągnij ikonę po pulpicie i okno za pasek tytułu.
+Jeśli masz pod ręką mysz z rolką — klik rolką w link otwiera kartę (B-1).
+
+**ODPOWIEDŹ:**
+- Wynik (pojedynczy klik):
+- Wynik (prawy):
+- Wynik (przeciąganie):
+
+---
+
 ## Co się stanie z Twoimi odpowiedziami
 
 Dla każdego `PRZESZŁO` przenoszę wynik do sekcji Status właściwej
