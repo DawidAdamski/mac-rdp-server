@@ -136,7 +136,7 @@ osobną, pełną iterację, nie „przy okazji".
 | F-004 | Damage tracking — wysyłanie tylko zmienionych regionów | **Implemented** — czeka na pomiar i weryfikację ręczną |
 | F-005 | Kursor — `DisplayUpdate::{RGBAPointer, CachedPointer, DefaultPointer}` | **Draft** (2026-08-24) — czeka na approve; approve = zgoda na ADR-0010 |
 | **ADR-0013** (MS-RDPBCGR §6 pkt 1) | Pomiar D-1 + korekta opisu ścieżki obrazu z ADR-0006: Surface Bits `codecID = 0` zamiast RDP 6.0 (P-01) | **Proposed** (2026-09-17) — pomiar D-1 u właściciela; przed F-005 |
-| **ADR-0012** (F-101) | Uwierzytelnianie: NLA/CredSSP przez `with_hybrid`, hasło w Keychainie (CredSSP wymaga hasła odwracalnego, więc hash jest niewykonalny). Stan API przebadany ponownie 2026-10-21 na forku rev `ac4cd7db` — poprzedni przegląd był z 2026-08-07 na 0.13.0 z crates.io | **Accepted** (2026-10-21) razem z **F-101 Approved**. Pomiar blokujący **wykonany 2026-10-21** (§Pomiar 2026-10-21): Keychain **nie** pyta po przebudowaniu, a element nie jest otwarty dla wszystkich — prognoza z pierwotnego ADR była błędna, F-106 przestaje blokować F-101 |
+| **ADR-0012** (F-101) | Uwierzytelnianie: NLA/CredSSP przez `with_hybrid`, hasło w Keychainie (CredSSP wymaga hasła odwracalnego, więc hash jest niewykonalny). Stan API przebadany ponownie 2026-10-21 na forku rev `ac4cd7db` — poprzedni przegląd był z 2026-08-07 na 0.13.0 z crates.io | **Accepted** (2026-10-21), źródło sekretu **ponownie otwarte** tego samego dnia. Pierwszy pomiar (§Pomiar 2026-10-21) orzekł, że Keychain nie pyta, i był **błędny** — mierzył kod wyjścia, nie okienko. Powtórzony z czasem jako miarą (§Pomiar 2026-10-21b): pyta przy **każdym** starcie, a ACL dla dowolnej aplikacji tego nie zmienia. Pierwotna prognoza ADR-a była słuszna, F-106 **znów** jest na drodze |
 | **F-003.22–F-003.26**, **F-003a.14–F-003a.18** (MS-RDPBCGR §6 pkt 2) | Input: Synchronize i koniec połączenia zwalniają trzymane klawisze i przyciski (P-04); surogaty UTF-16 i flagi zdarzeń Unicode (P-05) | F-003.22–26 **Verified** (2026-09-18); F-003a.14–18 i .19 **Implemented** — AC-10 czeka na klienta wysyłającego Unicode (FreeRDP / Windows App) |
 | **F-003.27–F-003.32** (zgłoszenie właściciela 2026-10-21) | Input: licznik kliknięć — dwuklik był niemożliwy, bo każde wciśnięcie niosło `clickState = 1`, a zwolnienie 0 (pomiar 2026-10-21). Liczby kliknięć nie ma w Mouse Event PDU, więc serwer wylicza ją z czasu i odległości, a interwał bierze z `NSEvent.doubleClickInterval` | **Implemented** (2026-10-21), Approved tego samego dnia. AC-17 … AC-20 = blok H w `specs/testy-reczne.md`. Odsłania niezaliczoną połowę AC-3 z 2026-07-27 |
 | **F-008** (MS-RDPBCGR §6 pkt 3) | Suppress Output / Refresh Rect (P-06): przerwa w wysyłaniu, pełne odświeżenie przez ponowną aktywację; kandydat na przyczynę Cmd+Tab z F-004 AC-5 | **Implemented** (2026-09-18, G3) — czeka na test ręczny (BRAMKA C, AC-3…AC-9); przed F-005 |
@@ -200,7 +200,7 @@ uwierzytelniania, więc kto dojdzie do portu, ten steruje Makiem.
 
 | Spec | Temat |
 |---|---|
-| F-101 | NLA / CredSSP — uwierzytelnianie **przed** sesją graficzną. **Spec zaapprowany 2026-10-21** (`F-101-uwierzytelnianie.md`, Approved) razem z **ADR-0012** (Accepted). Pomiar Keychaina wykonany tego samego dnia — **kod odblokowany** |
+| F-101 | NLA / CredSSP — uwierzytelnianie **przed** sesją graficzną. **Zaimplementowane 2026-10-21** (`F-101-uwierzytelnianie.md`, Implemented). Dziewięć wymagań zweryfikowanych na binarce, **AC-8 nie spełnione**: Keychain pyta przy każdym starcie. Fala 4 nie domyka się bez decyzji o źródle sekretu (F-101 §7 pkt 1) |
 | F-108 | Hardening i model zagrożeń dla LAN |
 
 **Zbadany stan IronRDP 0.13.0 (2026-08-07), determinujący projekt F-101:**
@@ -538,6 +538,35 @@ ale wszystkie dopuszczone warianty pochodziły z jednego projektu cargo. Dlatego
 doszło **AC-8a** (F-101 §4) jako test ręczny: hasło ustawione binarką
 z `target/release`, potem `brew upgrade` i połączenie bez ponownego ustawiania
 hasła. To jedyny przypadek, gdzie kopia ma inną tożsamość **i** inny build.
+
+### Pomiar 2026-10-21b — Keychain pyta przy każdym starcie, pierwszy pomiar był błędny
+
+Pomiar z tego samego dnia (§Pomiar 2026-10-21) orzekł, że Keychain nie pyta po
+przebudowaniu binarki. **To było nieprawdą**, a sposób, w jaki to wyszło, jest
+wart zapisania osobno od samego wyniku.
+
+Błąd metody: mierzono, **czy odczyt się udał**, a nie **czy pojawiło się
+okienko**. Okienko Keychaina pojawia się na ekranie właściciela, nie w wyjściu
+procesu, więc każde ciche przejście w tamtej tabeli znaczyło w rzeczywistości,
+że właściciel zobaczył okienko i wpisał hasło. Wyszło to dopiero, gdy
+właściciel zapytał w trakcie implementacji, dlaczego pyta go o hasło za każdym
+razem. Sygnał, który by to złapał, był pod ręką i nie został użyty: **czas**.
+Trzy kolejne starty tą samą binarką, bez żadnego przebudowania, dały
+**11,65 s, 7,94 s i 9,55 s** między linią startową a odczytem — to nie koszt
+kryptografii, to człowiek przy klawiaturze.
+
+Drugi wynik zamyka wyjście awaryjne, które ADR-0012 trzymał w zapasie: element
+utworzony z ACL dla **dowolnej aplikacji** (`security add-generic-password -A`)
+**też** wywołuje okienko, gdy czyta go nasza binarka. Nie decyduje ACL
+elementu, tylko brak tożsamości czytającego. Czyli ta ucieczka jest nie tyle
+niebezpieczna, co nieistniejąca.
+
+**Skutek dla fal:** **F-106 znów jest na drodze F-101.** Fala 4 nie domyka się
+bez decyzji właściciela o źródle sekretu: F-106 przed F-101 (prawdziwa
+tożsamość podpisu), jednorazowe „Zawsze zezwalaj" po instalacji (niezmierzone),
+albo plik `0600` zamiast Keychaina (poprawka F-101.5 i F-101.6). Kod F-101 jest
+zaimplementowany i w dziewięciu punktach zweryfikowany — blokuje wyłącznie
+sposób dostarczenia hasła.
 
 ## Decyzja właściciela 2026-10-12 — kolejność fal
 

@@ -1,6 +1,6 @@
 # ADR-0012 — Uwierzytelnianie: NLA/CredSSP, a hasło w Keychainie
 
-- **Status:** Accepted (2026-10-21)
+- **Status:** Accepted (2026-10-21), z **otwartą kwestią źródła sekretu** ponownie otwartą 2026-10-21 (§Pomiar 2026-10-21b)
 - **Dotyczy:** F-101 (uwierzytelnianie), F-108 (hardening), F-106 (bundel `.app`)
 - **Zastępuje:** nic. Pierwszy ADR o uwierzytelnianiu.
 
@@ -69,7 +69,7 @@ bezpieczniejszy w spoczynku. To ograniczenie protokołu, nie biblioteki.
   w sobie, więc nasz kod pozostaje bezpieczny — inaczej niż przy `objc2`
   w F-111, gdzie trzeba było wyjątku.
 
-## Pomiar (2026-10-21) — kwestia rozstrzygnięta
+## Pomiar (2026-10-21) — pierwsze podejście, **wniosek błędny**
 
 Pierwotnie ta sekcja brzmiała „Otwarta kwestia wymagająca pomiaru przed kodem"
 i zawierała prognozę, że Keychain **będzie** pytał po każdym przebudowaniu,
@@ -130,27 +130,92 @@ Kontrola, że okienko `security` nie jest artefaktem samego narzędzia:
 własnym elemencie przechodzi **cicho**, zarówno z ACL domyślnym, jak i z `-A`.
 Czyli odmowa z wiersza przedostatniego jest prawdziwą odmową ACL.
 
-### Wnioski
+### Wnioski, które z tego wyciągnięto — i dlaczego były błędne
 
-1. **AC-8 jest osiągalne.** Przebudowanie binarki nie wywołuje okienka.
-2. **Nie dzieje się to przez otwarcie elementu dla wszystkich.** Obcy program
-   ad-hoc dostaje okienko i odmowę, więc sekret nie jest czytelny dla
-   dowolnego programu na Macu.
-3. **Żadna z trzech ucieczek nie jest potrzebna**: ani F-106 przed F-101, ani
-   element „dla dowolnej aplikacji", ani plik `0600` zamiast Keychaina.
-   F-106 zostaje potrzebne z pierwotnego powodu — uprawnienia TCC należące do
-   terminala — ale **przestaje blokować** uwierzytelnianie.
+Wyciągnięto wtedy trzy wnioski: że AC-8 jest osiągalne, że element nie jest
+przy tym otwarty dla wszystkich, i że żadna z trzech ucieczek nie jest
+potrzebna. **Wszystkie trzy są nieważne**, bo kolumna „wynik" w tabeli powyżej
+mierzyła co innego, niż się wydawało.
 
-### Czego pomiar nie ustalił
+Błąd metody, nazwany wprost, bo to on jest tu wart zapamiętania: mierzono
+**czy odczyt się udał**, a nie **czy pojawiło się okienko**. Okienko Keychaina
+pojawia się na ekranie właściciela, a nie w wyjściu procesu; każde „cicho"
+w tabeli znaczyło w rzeczywistości „właściciel zobaczył okienko i wpisał
+hasło". Sygnał, który by to złapał, był pod ręką i nie został użyty: **czas**.
+Jedyne dwa wiersze, przy których czas zmierzono (37,8 s i 20 s), opisano jako
+„odmowa ACL" — a to również był właściciel, tylko klikający „Odmów".
 
-**Mechanizmu dopasowania.** Jako kryterium wykluczone zostały: cdhash,
-signing identifier, nazwa pliku, ścieżka i katalog — wszystkie się zmieniały,
-a dostęp pozostawał cichy. Wszystkie dopuszczone warianty pochodziły jednak
-z **jednego projektu cargo**, czego od „tej samej aplikacji" nie udało się
-rozdzielić. Dlatego wniosek 1 jest wnioskiem z obserwacji, nie z udokumentowanej
-reguły, i AC-8a (F-101 §4) weryfikuje to ręcznie na binarce z wydania po
-`brew upgrade` — bo to jedyny przypadek, w którym kopia ma inną tożsamość
-**i** pochodzi z innego buildu. Jeśli okienko gdzieś wyskoczy, wyskoczy tam.
+Patrz §Pomiar 2026-10-21b poniżej.
+
+## Pomiar 2026-10-21b — Keychain pyta przy **każdym** odczycie
+
+Zgłoszenie właściciela w trakcie implementacji F-101: „te wszystkie keychainy
+to mnie pyta o hasło i ja muszę manualnie wprowadzać". To unieważniło pomiar
+powyżej i zostało powtórzone na prawdziwej binarce serwera, z czasem jako
+miarą.
+
+### Zmierzone
+
+Trzy kolejne starty `target/debug/mac-rdp-server --auth-user … --bind-addr
+0.0.0.0`, **tą samą binarką**, bez żadnego przebudowania pomiędzy. Mierzony
+odstęp między linią `starting mac-rdp-server` i pierwszą linią po odczycie
+Keychaina:
+
+| start | odstęp |
+|---|---|
+| 1 | 11,65 s |
+| 2 | 7,94 s |
+| 3 | 9,55 s |
+
+To nie koszt kryptografii. To czas, w którym człowiek czyta okienko i wpisuje
+hasło. Czwarty start, po przebudowaniu, zawisł na 45-sekundowym limicie i nie
+wstał, bo właściciel zaczął klikać „Odmów".
+
+Dalej, i to jest wniosek najważniejszy: element utworzony **z ACL „dostęp dla
+dowolnej aplikacji"** (`security add-generic-password -A`) też wywołał okienko,
+gdy czytał go nasz kod:
+
+| element | ACL | czytający | wynik |
+|---|---|---|---|
+| `f101-anyapp-test` | `-A`, dowolna aplikacja | nasza binarka ad-hoc | **okienko**, odmowa (44,9 s) |
+| `f101-noacl-test` | domyślny | nasza binarka ad-hoc | **okienko**, odmowa (2,97 s) |
+| oba powyższe | — | `/usr/bin/security` | cicho |
+
+### Wnioski (ten raz oparte na obserwacji okienka, nie na kodzie wyjścia)
+
+1. **AC-8 nie przechodzi**, i to szerzej niż mówiło samo kryterium: Keychain
+   pyta nie „po przebudowaniu binarki", ale **przy każdym starcie**.
+2. **Pierwotna prognoza z tego ADR-a była słuszna.** Binarka podpisana ad-hoc
+   nie ma stabilnej tożsamości, którą ACL mógłby zapamiętać, więc nie da się
+   jej na tę listę wpisać trwale.
+3. **Ucieczka „element dla dowolnej aplikacji" nie działa.** To nie ACL
+   elementu decyduje, tylko brak tożsamości czytającego. Odrzucona nie
+   dlatego, że jest niebezpieczna — dlatego, że jest nieskuteczna.
+4. `/usr/bin/security` czyta swoje elementy cicho, bo jest podpisany przez
+   Apple i trafia na listę zaufanych aplikacji jako konkretna tożsamość. To
+   kontrprzykład pokazujący, że mechanizm działa — tylko nie dla nas.
+
+### Czego ten pomiar **nie** ustalił
+
+Czy jednorazowe kliknięcie **„Zawsze zezwalaj"** uciszy kolejne starty, i na
+jak długo. Z mechanizmu wynika, że dopisałoby cdhash tej jednej binarki, więc
+powinno wystarczyć do najbliższego przebudowania albo `brew upgrade` — ale to
+jest przewidywanie, a przewidywania w tej sprawie wyszły już raz fałszywe.
+Pomiar wymaga świadomego kliknięcia właściciela i nie został wykonany.
+
+### Skutek dla decyzji
+
+Wybór zostaje przy właścicielu i jest teraz węższy niż był:
+
+1. **F-106 przed F-101** — prawdziwa tożsamość podpisu (Developer ID), ACL
+   trwały przez przebudowania i wydania. Jedyna droga, w której Keychain
+   zostaje i AC-8 przechodzi.
+2. **„Zawsze zezwalaj" raz po każdej instalacji** — do zmierzenia; jeśli
+   działa, jest akceptowalne dla binarki z brew i bezużyteczne przy
+   codziennym przebudowywaniu.
+3. **Plik `0600` zamiast Keychaina** — wymaga poprawki F-101.5 i F-101.6.
+   Przestaje być gorszy od wariantu „dowolna aplikacja", bo ten wariant
+   okazał się nieistniejący.
 
 ## Odrzucone alternatywy
 

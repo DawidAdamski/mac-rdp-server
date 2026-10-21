@@ -1,7 +1,7 @@
 # F-101 — Uwierzytelnianie: hasło przed pulpitem
 
 - **Fala:** 4
-- **Status:** Approved (2026-10-21)
+- **Status:** Implemented (2026-10-21) — AC-8 nie spełnione, patrz §8
 - **Data:** 2026-10-21
 - **ADR:** ADR-0012 (NLA/CredSSP i hasło w Keychainie), ADR-0004 (TLS i certyfikat),
   ADR-0014 (silnik z forka)
@@ -133,16 +133,18 @@ Granica architektoniczna z CLAUDE.md zostaje: API silnika (`with_hybrid`,
    a hasła nie widać w historii powłoki (`history | grep` nie znajduje).
 8. **AC-8** **Keychain nie pyta o pozwolenie przy każdym starcie.** Start,
    `cargo build --release`, start ponownie — bez okienka „chce użyć informacji
-   poufnych". Przedtem było to pytanie otwarte mogące wymusić zmianę projektu;
-   pomiar z 2026-10-21 (ADR-0012 §Pomiar) pokazał, że przebudowanie nie wywołuje
-   okienka, więc kryterium zostaje jako regresja, nie jako niewiadoma.
+   poufnych". **NIE SPEŁNIONE (2026-10-21).** Pyta nie po przebudowaniu, ale
+   przy każdym starcie, i nie da się tego obejść ACL-em elementu
+   (ADR-0012 §Pomiar 2026-10-21b). Kryterium zostaje w tej formie: ono jest
+   tym, co ma być prawdą, a nie opisem tego, co jest. Jak je spełnić, rozstrzyga
+   decyzja z §7 pkt 1.
 9. **AC-8a** **To samo na binarce z wydania, ręcznie.** Ustaw hasło binarką
    z `target/release`, połącz się, potem `brew upgrade` do nowszej wersji
    i połącz się ponownie **bez ponownego ustawiania hasła**. Bez okienka.
-   To jest właściwy test AC-8, bo kopia z brew i kopia lokalna mają różne
-   tożsamości podpisu, a wydaniowa niesie identyfikator wyprowadzony z LC_UUID,
-   zmienny przy każdym linkowaniu. Pomiar sondą tego **nie** obejmował
-   (§7 pkt 1), więc jeśli okienko wyskoczy, to wyskoczy tutaj.
+   Bezprzedmiotowe, dopóki AC-8 nie przechodzi nawet lokalnie; zostaje, bo po
+   naprawie AC-8 to wydanie jest przypadkiem trudniejszym — kopia z brew ma
+   inną tożsamość podpisu niż lokalna, a wydaniowa niesie identyfikator
+   wyprowadzony z LC_UUID, zmienny przy każdym linkowaniu.
 10. **AC-9** **Hasła nie ma w logu.** Pełna sesja z `MAC_RDP_LOG=trace`
     i poprawnym hasłem; `grep` po haśle w całym logu nie znajduje nic.
 11. **AC-10** **Jedno konto, jedna nazwa.** Poprawne hasło z **inną** nazwą
@@ -163,22 +165,24 @@ Granica architektoniczna z CLAUDE.md zostaje: API silnika (`with_hybrid`,
 
 ## 7. Ryzyka i otwarte kwestie
 
-1. **Czy Keychain pyta o pozwolenie po przebudowaniu binarki — ZMIERZONE
-   2026-10-21: nie pyta.** Pomiar opisany w ADR-0012 §Pomiar. Przebudowanie,
-   kopia pod inną nazwą i w innym katalogu, bump wersji crate'a i ponowne
-   podpisanie ad-hoc — żadne z tego nie wywołało okienka. Jednocześnie element
-   **nie** jest otwarty dla wszystkich: obcy program ad-hoc i `/usr/bin/security`
-   dostają okienko i odmowę. Czyli AC-8 jest osiągalne bez F-106, bez elementu
-   „dla dowolnej aplikacji" i bez pliku `0600`.
+1. **Keychain pyta o pozwolenie przy KAŻDYM odczycie — ZMIERZONE 2026-10-21,
+   AC-8 nie przechodzi.** ADR-0012 §Pomiar 2026-10-21b. Trzy kolejne starty tą
+   samą binarką, bez przebudowania: 11,65 s, 7,94 s, 9,55 s — to czas, w którym
+   właściciel wpisuje hasło w okienku. Element utworzony z ACL „dostęp dla
+   dowolnej aplikacji" **też** wywołuje okienko, więc ucieczka rozważana
+   w ADR-0012 nie istnieje: decyduje brak tożsamości czytającego, nie ACL
+   elementu.
 
-   Co **nie** zostało rozdzielone pomiarem: wszystkie dopuszczone warianty
-   pochodziły z jednego projektu cargo. Mechanizmu dopasowania nie udało się
-   ustalić — cdhash, signing identifier, nazwa pliku, ścieżka i katalog zostały
-   **wykluczone** jako kryterium (zmieniały się, a dostęp pozostawał cichy).
-   Dlatego weryfikacja AC-8 na prawdziwej binarce zostaje **ręczna** (AC-8a
-   poniżej): `target/release` kontra `/opt/homebrew/bin` po `brew upgrade`, bo
-   te dwie kopie mają dziś różne tożsamości, a wydaniowa niesie identyfikator
-   wyprowadzony z LC_UUID, zmienny przy każdym linkowaniu.
+   Pierwszy pomiar tego samego dnia dał wniosek odwrotny i był **błędny** —
+   mierzył, czy odczyt się udał, a nie czy pojawiło się okienko; okienko
+   pojawia się na ekranie właściciela, nie w wyjściu procesu. Historia obu
+   pomiarów została w ADR-0012 celowo.
+
+   **To blokuje wyłącznie źródło sekretu, nie resztę speca.** Zaimplementowane
+   i zweryfikowane działa (patrz §8). Decyzja właściciela do podjęcia: F-106
+   przed F-101 (prawdziwa tożsamość podpisu), jednorazowe „Zawsze zezwalaj"
+   (niezmierzone), albo plik `0600` zamiast Keychaina — co wymaga poprawki
+   F-101.5 i F-101.6.
 2. **NTLM jest kryptograficznie słaby.** To, co wybieramy, jest wymuszone
    przez protokół: RDP NLA to CredSSP, a CredSSP w praktyce to NTLM, gdy nie
    ma Kerberosa. Łagodzi to fakt, że cała wymiana idzie w środku TLS
@@ -200,14 +204,27 @@ Granica architektoniczna z CLAUDE.md zostaje: API silnika (`with_hybrid`,
 
 ## 8. Status
 
-**Approved (2026-10-21).** Zaapprowane przez właściciela 2026-10-21.
+**Implemented (2026-10-21), z jednym niespełnionym kryterium.**
+Zaapprowane przez właściciela 2026-10-21, zaimplementowane tego samego dnia.
 
-Pomiar blokujący implementację **wykonany tego samego dnia** (ADR-0012
-§Pomiar): Keychain nie pyta o pozwolenie po przebudowaniu binarki, a element
-nie jest przy tym otwarty dla wszystkich aplikacji. Żadna z trzech rozważanych
-ucieczek nie jest potrzebna — ani F-106 przed F-101, ani element „dla dowolnej
-aplikacji", ani plik `0600`. **Wymagania zostają w tej formie i kod jest
-odblokowany.**
+**Zweryfikowane na prawdziwej binarce:**
 
-Jedno zastrzeżenie przechodzi do kryteriów: AC-8a weryfikuje to samo na
-binarce z wydania (`brew upgrade`), czego sonda nie objęła.
+| wymaganie | jak sprawdzone |
+|---|---|
+| F-101.10, AC-5 | `--bind-addr 0.0.0.0` bez hasła: kod wyjścia 1, komunikat nazywa oba wyjścia |
+| F-101.11 | użytkownik skonfigurowany bez sekretu: kod wyjścia 1, **inny** komunikat |
+| F-101.12 | czysta funkcja, 3 testy jednostkowe, w tym `0.0.0.0` i `::` |
+| F-101.4, AC-6 | `--bind-addr 127.0.0.1` bez hasła wstaje i nasłuchuje |
+| F-101.1, F-101.2, F-101.3 | start z hasłem wstaje przez `with_hybrid`, `auth=nla user=…` |
+| F-101.8, F-101.9 | zapis ze standardowego wejścia działa, puste hasło odrzucone |
+| F-101.15, AC-9 | pełna sesja z `MAC_RDP_LOG=trace`: zero wystąpień hasła w logu |
+| F-101.16 | `auth=nla user=f101-probe` / `auth=none user=-` w linii startowej |
+| F-101.13, F-101.14 | rozpoznanie odrzucenia typem `ConnectorErrorKind`, 5 testów |
+
+**Nie spełnione:** AC-8 — Keychain pyta przy każdym starcie (§7 pkt 1).
+**Nie zweryfikowane, bo wymagają klienta:** AC-2, AC-3, AC-4, AC-10, i AC-8a.
+
+Dopóki AC-8 nie przechodzi, F-101 **nie może dostać statusu Verified**, a Fala 4
+nie może zostać zamknięta. Kod jest użyteczny już teraz dla celu z §1 — serwer
+bez hasła nie daje się wystawić poza loopback, co działa i jest przetestowane —
+ale uruchomienie z hasłem kosztuje jedno okienko na start.
