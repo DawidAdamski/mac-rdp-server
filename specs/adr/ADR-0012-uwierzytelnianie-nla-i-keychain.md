@@ -69,21 +69,88 @@ bezpieczniejszy w spoczynku. To ograniczenie protokołu, nie biblioteki.
   w sobie, więc nasz kod pozostaje bezpieczny — inaczej niż przy `objc2`
   w F-111, gdzie trzeba było wyjątku.
 
-## Otwarta kwestia wymagająca pomiaru przed kodem
+## Pomiar (2026-10-21) — kwestia rozstrzygnięta
 
-**Czy Keychain nie będzie pytał o pozwolenie przy każdym przebudowaniu
-binarki.** Element Keychaina ma ACL powiązane z aplikacją, która go stworzyła,
-a nasza binarka jest podpisana **ad-hoc** (`codesign --sign -`, F-110 §3) i leży
-pod ścieżką, która zmienia się między `target/debug` a `/opt/homebrew`. Jeśli
-tożsamość będzie się zmieniać, użytkownik dostanie okienko „mac-rdp-server
-chce użyć informacji poufnych" przy każdym starcie po przebudowaniu — co jest
-nie do przyjęcia dla usługi uruchamianej z `launchd` (F-109).
+Pierwotnie ta sekcja brzmiała „Otwarta kwestia wymagająca pomiaru przed kodem"
+i zawierała prognozę, że Keychain **będzie** pytał po każdym przebudowaniu,
+bo element ma ACL powiązane z aplikacją, która go stworzyła, a nasza binarka
+jest podpisana ad-hoc (`codesign --sign -`, F-110 §3) pod zmienną ścieżką.
+**Prognoza była błędna.** Zapisana tu wraz z pomiarem, bo była powodem, dla
+którego F-106 miał wyprzedzić F-101.
 
-To ta sama rodzina problemów co uprawnienia TCC należące do terminala i jest
-to **drugi powód**, dla którego F-106 (bundel `.app` z własną tożsamością)
-przestaje być kosmetyką. Pomiar musi odpowiedzieć: czy zapis i odczyt
-elementu z tej samej binarki przechodzi bez okienka, i co się dzieje po
-`cargo build`. Dopóki nie ma odpowiedzi, F-101 nie powinien wejść w kod.
+Narzędzie: osobny projekt cargo w scratchpadzie (`security-framework` 3.7.0,
+`passwords::{set,get,delete}_generic_password`), usługa `mac-rdp-server-probe`,
+żeby prawdziwy element nigdy nie był ruszany. Pęk: `login.keychain-db`.
+
+### Co zmierzono o tożsamości podpisu
+
+Designated requirement binarki podpisanej ad-hoc to **dosłownie hash tego
+jednego pliku** — nie „ten program", nie „ten wydawca":
+
+```
+# designated => cdhash H"d0b5486c81d1a420f9b7ba3489a3dc99863f9cec"
+```
+
+Build **nie jest reprodukowalny**: `cargo build`, dopisanie linii komentarza
+i przywrócenie źródła do stanu wyjściowego dały trzy różne cdhashe
+(`ee501cf0…`, `0fde73b7…`, `d0b5486c…`). Czyli nie trzeba zmieniać kodu, żeby
+powstała binarka o nowym cdhashu.
+
+Po `codesign --force --sign -` (to robi `.github/workflows/release.yml:55`)
+identyfikator ma postać `nazwa-pliku` + hex napisu `UUID` + **LC_UUID Mach-O**:
+
+```
+Identifier = bin-B-resigned-55554944b0b3aadf093f354f8226b39e9a13f14b
+LC_UUID    =                B0B3AADF-093F-354F-8226-B39E9A13F14B
+```
+
+LC_UUID zmienia się przy każdym linkowaniu. Bump wersji crate'a zmienia też
+identyfikator linker-signed nadawany przez cargo (`keychain_probe-f47c8586…`
+→ `keychain_probe-f69f06bd…`). Dziś `target/release/mac-rdp-server`
+(`mac_rdp_server-3f737d0f…`) i `/opt/homebrew/bin/mac-rdp-server`
+(`mac-rdp-server-5555494412c0…`) mają **różne tożsamości**.
+
+### Co zmierzono o dostępie do elementu
+
+Element utworzony sondą, a potem czytany:
+
+| czytający | tożsamość | wynik |
+|---|---|---|
+| ta sama binarka | — | cicho |
+| kopia bajt w bajt, inna nazwa pliku | ten sam cdhash | cicho |
+| kopia w innym katalogu, i w katalogu domowym | ten sam cdhash | cicho |
+| **przebudowana binarka** | nowy cdhash | **cicho** |
+| binarka po bumpie wersji crate'a | nowy cdhash i nowy identifier | **cicho** |
+| binarka po `codesign -f -s -` | identifier z LC_UUID | **cicho** |
+| **zupełnie obcy program ad-hoc** | inny crate, inna nazwa | **okienko, odmowa** (37,8 s do anulowania) |
+| `/usr/bin/security -w` | `com.apple.security` | **okienko** (zawisło na limicie 20 s) |
+
+Kontrola, że okienko `security` nie jest artefaktem samego narzędzia:
+`security add-generic-password` + `security find-generic-password -w` na
+własnym elemencie przechodzi **cicho**, zarówno z ACL domyślnym, jak i z `-A`.
+Czyli odmowa z wiersza przedostatniego jest prawdziwą odmową ACL.
+
+### Wnioski
+
+1. **AC-8 jest osiągalne.** Przebudowanie binarki nie wywołuje okienka.
+2. **Nie dzieje się to przez otwarcie elementu dla wszystkich.** Obcy program
+   ad-hoc dostaje okienko i odmowę, więc sekret nie jest czytelny dla
+   dowolnego programu na Macu.
+3. **Żadna z trzech ucieczek nie jest potrzebna**: ani F-106 przed F-101, ani
+   element „dla dowolnej aplikacji", ani plik `0600` zamiast Keychaina.
+   F-106 zostaje potrzebne z pierwotnego powodu — uprawnienia TCC należące do
+   terminala — ale **przestaje blokować** uwierzytelnianie.
+
+### Czego pomiar nie ustalił
+
+**Mechanizmu dopasowania.** Jako kryterium wykluczone zostały: cdhash,
+signing identifier, nazwa pliku, ścieżka i katalog — wszystkie się zmieniały,
+a dostęp pozostawał cichy. Wszystkie dopuszczone warianty pochodziły jednak
+z **jednego projektu cargo**, czego od „tej samej aplikacji" nie udało się
+rozdzielić. Dlatego wniosek 1 jest wnioskiem z obserwacji, nie z udokumentowanej
+reguły, i AC-8a (F-101 §4) weryfikuje to ręcznie na binarce z wydania po
+`brew upgrade` — bo to jedyny przypadek, w którym kopia ma inną tożsamość
+**i** pochodzi z innego buildu. Jeśli okienko gdzieś wyskoczy, wyskoczy tam.
 
 ## Odrzucone alternatywy
 

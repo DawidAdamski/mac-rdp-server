@@ -136,7 +136,7 @@ osobną, pełną iterację, nie „przy okazji".
 | F-004 | Damage tracking — wysyłanie tylko zmienionych regionów | **Implemented** — czeka na pomiar i weryfikację ręczną |
 | F-005 | Kursor — `DisplayUpdate::{RGBAPointer, CachedPointer, DefaultPointer}` | **Draft** (2026-08-24) — czeka na approve; approve = zgoda na ADR-0010 |
 | **ADR-0013** (MS-RDPBCGR §6 pkt 1) | Pomiar D-1 + korekta opisu ścieżki obrazu z ADR-0006: Surface Bits `codecID = 0` zamiast RDP 6.0 (P-01) | **Proposed** (2026-09-17) — pomiar D-1 u właściciela; przed F-005 |
-| **ADR-0012** (F-101) | Uwierzytelnianie: NLA/CredSSP przez `with_hybrid`, hasło w Keychainie (CredSSP wymaga hasła odwracalnego, więc hash jest niewykonalny). Stan API przebadany ponownie 2026-10-21 na forku rev `ac4cd7db` — poprzedni przegląd był z 2026-08-07 na 0.13.0 z crates.io | **Accepted** (2026-10-21) razem z **F-101 Approved**. Przed kodem wymagany pomiar: czy Keychain pyta o pozwolenie po przebudowaniu binarki |
+| **ADR-0012** (F-101) | Uwierzytelnianie: NLA/CredSSP przez `with_hybrid`, hasło w Keychainie (CredSSP wymaga hasła odwracalnego, więc hash jest niewykonalny). Stan API przebadany ponownie 2026-10-21 na forku rev `ac4cd7db` — poprzedni przegląd był z 2026-08-07 na 0.13.0 z crates.io | **Accepted** (2026-10-21) razem z **F-101 Approved**. Pomiar blokujący **wykonany 2026-10-21** (§Pomiar 2026-10-21): Keychain **nie** pyta po przebudowaniu, a element nie jest otwarty dla wszystkich — prognoza z pierwotnego ADR była błędna, F-106 przestaje blokować F-101 |
 | **F-003.22–F-003.26**, **F-003a.14–F-003a.18** (MS-RDPBCGR §6 pkt 2) | Input: Synchronize i koniec połączenia zwalniają trzymane klawisze i przyciski (P-04); surogaty UTF-16 i flagi zdarzeń Unicode (P-05) | F-003.22–26 **Verified** (2026-09-18); F-003a.14–18 i .19 **Implemented** — AC-10 czeka na klienta wysyłającego Unicode (FreeRDP / Windows App) |
 | **F-003.27–F-003.32** (zgłoszenie właściciela 2026-10-21) | Input: licznik kliknięć — dwuklik był niemożliwy, bo każde wciśnięcie niosło `clickState = 1`, a zwolnienie 0 (pomiar 2026-10-21). Liczby kliknięć nie ma w Mouse Event PDU, więc serwer wylicza ją z czasu i odległości, a interwał bierze z `NSEvent.doubleClickInterval` | **Implemented** (2026-10-21), Approved tego samego dnia. AC-17 … AC-20 = blok H w `specs/testy-reczne.md`. Odsłania niezaliczoną połowę AC-3 z 2026-07-27 |
 | **F-008** (MS-RDPBCGR §6 pkt 3) | Suppress Output / Refresh Rect (P-06): przerwa w wysyłaniu, pełne odświeżenie przez ponowną aktywację; kandydat na przyczynę Cmd+Tab z F-004 AC-5 | **Implemented** (2026-09-18, G3) — czeka na test ręczny (BRAMKA C, AC-3…AC-9); przed F-005 |
@@ -200,7 +200,7 @@ uwierzytelniania, więc kto dojdzie do portu, ten steruje Makiem.
 
 | Spec | Temat |
 |---|---|
-| F-101 | NLA / CredSSP — uwierzytelnianie **przed** sesją graficzną. **Spec zaapprowany 2026-10-21** (`F-101-uwierzytelnianie.md`, Approved) razem z **ADR-0012** (Accepted). Kod czeka na pomiar Keychaina (F-101 §7 pkt 1) |
+| F-101 | NLA / CredSSP — uwierzytelnianie **przed** sesją graficzną. **Spec zaapprowany 2026-10-21** (`F-101-uwierzytelnianie.md`, Approved) razem z **ADR-0012** (Accepted). Pomiar Keychaina wykonany tego samego dnia — **kod odblokowany** |
 | F-108 | Hardening i model zagrożeń dla LAN |
 
 **Zbadany stan IronRDP 0.13.0 (2026-08-07), determinujący projekt F-101:**
@@ -510,6 +510,34 @@ FreeRDP**. Praktyczny skutek: ręczne testy A-3 i C-1 da się dziś zrobić tylk
 
 Nie drążone dalej, bo to inny wątek niż zgłoszony objaw. Kandydat na własny
 spec albo na pozycję w backlogu po decyzji właściciela.
+
+### Pomiar 2026-10-21 — czy Keychain pyta o pozwolenie po przebudowaniu binarki
+
+Pomiar blokujący implementację F-101, zamówiony przez ADR-0012. **Prognoza
+asystenta — że AC-8 padnie, bo podpis ad-hoc nie daje stabilnej tożsamości —
+okazała się błędna.** Pełne liczby w ADR-0012 §Pomiar; tu skutek dla fal.
+
+Zmierzone: designated requirement binarki ad-hoc to dosłownie jej cdhash,
+a build **nie jest reprodukowalny**, więc cdhash zmienia się przy każdym
+`cargo build`. Mimo tego przebudowana binarka, kopia pod inną nazwą i w innym
+katalogu, binarka po bumpie wersji i binarka po `codesign -f -s -` czytały
+element Keychaina **bez okienka**. Jednocześnie zupełnie obcy program ad-hoc
+i `/usr/bin/security` dostały okienko i odmowę — czyli dostęp nie jest otwarty
+dla wszystkich. Kontrola: `security` czyta swoje własne elementy cicho, więc
+ta odmowa jest prawdziwa, a nie artefaktem narzędzia.
+
+**Skutek dla kolejności fal:** F-106 (bundel `.app`) **przestaje blokować**
+F-101. Pozostaje potrzebne z pierwotnego powodu — uprawnienia TCC należące do
+terminala — ale uwierzytelnianie może wejść przed nim. Dwie odrzucone wcześniej
+ucieczki (element „dla dowolnej aplikacji", plik `0600` zamiast Keychaina)
+pozostają odrzucone i nie trzeba o nich decydować.
+
+**Czego pomiar nie ustalił:** mechanizmu dopasowania ACL. Cdhash, signing
+identifier, nazwa pliku, ścieżka i katalog zostały wykluczone jako kryterium,
+ale wszystkie dopuszczone warianty pochodziły z jednego projektu cargo. Dlatego
+doszło **AC-8a** (F-101 §4) jako test ręczny: hasło ustawione binarką
+z `target/release`, potem `brew upgrade` i połączenie bez ponownego ustawiania
+hasła. To jedyny przypadek, gdzie kopia ma inną tożsamość **i** inny build.
 
 ## Decyzja właściciela 2026-10-12 — kolejność fal
 

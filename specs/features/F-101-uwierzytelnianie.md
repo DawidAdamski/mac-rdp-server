@@ -133,11 +133,19 @@ Granica architektoniczna z CLAUDE.md zostaje: API silnika (`with_hybrid`,
    a hasła nie widać w historii powłoki (`history | grep` nie znajduje).
 8. **AC-8** **Keychain nie pyta o pozwolenie przy każdym starcie.** Start,
    `cargo build --release`, start ponownie — bez okienka „chce użyć informacji
-   poufnych". **To jest pomiar z §7 pkt 1 i może wymusić zmianę projektu**,
-   dlatego jest kryterium, a nie założeniem.
-9. **AC-9** **Hasła nie ma w logu.** Pełna sesja z `MAC_RDP_LOG=trace`
-   i poprawnym hasłem; `grep` po haśle w całym logu nie znajduje nic.
-10. **AC-10** **Jedno konto, jedna nazwa.** Poprawne hasło z **inną** nazwą
+   poufnych". Przedtem było to pytanie otwarte mogące wymusić zmianę projektu;
+   pomiar z 2026-10-21 (ADR-0012 §Pomiar) pokazał, że przebudowanie nie wywołuje
+   okienka, więc kryterium zostaje jako regresja, nie jako niewiadoma.
+9. **AC-8a** **To samo na binarce z wydania, ręcznie.** Ustaw hasło binarką
+   z `target/release`, połącz się, potem `brew upgrade` do nowszej wersji
+   i połącz się ponownie **bez ponownego ustawiania hasła**. Bez okienka.
+   To jest właściwy test AC-8, bo kopia z brew i kopia lokalna mają różne
+   tożsamości podpisu, a wydaniowa niesie identyfikator wyprowadzony z LC_UUID,
+   zmienny przy każdym linkowaniu. Pomiar sondą tego **nie** obejmował
+   (§7 pkt 1), więc jeśli okienko wyskoczy, to wyskoczy tutaj.
+10. **AC-9** **Hasła nie ma w logu.** Pełna sesja z `MAC_RDP_LOG=trace`
+    i poprawnym hasłem; `grep` po haśle w całym logu nie znajduje nic.
+11. **AC-10** **Jedno konto, jedna nazwa.** Poprawne hasło z **inną** nazwą
     użytkownika niż skonfigurowana jest odrzucane (dowód, że sprawdzana jest
     para, a nie samo hasło).
 
@@ -155,15 +163,22 @@ Granica architektoniczna z CLAUDE.md zostaje: API silnika (`with_hybrid`,
 
 ## 7. Ryzyka i otwarte kwestie
 
-1. **Czy Keychain nie będzie pytał o pozwolenie po każdym przebudowaniu
-   binarki.** Element Keychaina ma ACL powiązane z aplikacją, która go
-   stworzyła, a nasza binarka jest podpisana **ad-hoc** i leży pod ścieżką
-   zmienną między `target/debug`, `target/release` i `/opt/homebrew`. Jeśli
-   tożsamość będzie się zmieniać, użytkownik dostanie okienko przy każdym
-   starcie — co dla usługi z `launchd` (F-109) jest nie do przyjęcia.
-   **Pomiar MUSI poprzedzić kod** (ADR-0012 §Otwarta kwestia). To drugi
-   powód, dla którego F-106 przestaje być kosmetyką: pierwszym są uprawnienia
-   TCC należące do terminala.
+1. **Czy Keychain pyta o pozwolenie po przebudowaniu binarki — ZMIERZONE
+   2026-10-21: nie pyta.** Pomiar opisany w ADR-0012 §Pomiar. Przebudowanie,
+   kopia pod inną nazwą i w innym katalogu, bump wersji crate'a i ponowne
+   podpisanie ad-hoc — żadne z tego nie wywołało okienka. Jednocześnie element
+   **nie** jest otwarty dla wszystkich: obcy program ad-hoc i `/usr/bin/security`
+   dostają okienko i odmowę. Czyli AC-8 jest osiągalne bez F-106, bez elementu
+   „dla dowolnej aplikacji" i bez pliku `0600`.
+
+   Co **nie** zostało rozdzielone pomiarem: wszystkie dopuszczone warianty
+   pochodziły z jednego projektu cargo. Mechanizmu dopasowania nie udało się
+   ustalić — cdhash, signing identifier, nazwa pliku, ścieżka i katalog zostały
+   **wykluczone** jako kryterium (zmieniały się, a dostęp pozostawał cichy).
+   Dlatego weryfikacja AC-8 na prawdziwej binarce zostaje **ręczna** (AC-8a
+   poniżej): `target/release` kontra `/opt/homebrew/bin` po `brew upgrade`, bo
+   te dwie kopie mają dziś różne tożsamości, a wydaniowa niesie identyfikator
+   wyprowadzony z LC_UUID, zmienny przy każdym linkowaniu.
 2. **NTLM jest kryptograficznie słaby.** To, co wybieramy, jest wymuszone
    przez protokół: RDP NLA to CredSSP, a CredSSP w praktyce to NTLM, gdy nie
    ma Kerberosa. Łagodzi to fakt, że cała wymiana idzie w środku TLS
@@ -187,10 +202,12 @@ Granica architektoniczna z CLAUDE.md zostaje: API silnika (`with_hybrid`,
 
 **Approved (2026-10-21).** Zaapprowane przez właściciela 2026-10-21.
 
-Approve dotyczy **wymagań**, nie zgody na natychmiastowy kod. Przed
-implementacją wymagany jest pomiar z §7 pkt 1 (czy Keychain pyta o pozwolenie
-po przebudowaniu binarki). Jego wynik może zmienić projekt: jeżeli AC-8 nie da
-się spełnić przy podpisie ad-hoc, wybór jest między elementem dostępnym dla
-wszystkich aplikacji (decyzja właściciela) a prawdziwą tożsamością podpisu,
-czyli F-106 **przed** F-101. Dopiero po pomiarze wiadomo, które wymagania
-zostają w tej formie.
+Pomiar blokujący implementację **wykonany tego samego dnia** (ADR-0012
+§Pomiar): Keychain nie pyta o pozwolenie po przebudowaniu binarki, a element
+nie jest przy tym otwarty dla wszystkich aplikacji. Żadna z trzech rozważanych
+ucieczek nie jest potrzebna — ani F-106 przed F-101, ani element „dla dowolnej
+aplikacji", ani plik `0600`. **Wymagania zostają w tej formie i kod jest
+odblokowany.**
+
+Jedno zastrzeżenie przechodzi do kryteriów: AC-8a weryfikuje to samo na
+binarce z wydania (`brew upgrade`), czego sonda nie objęła.
