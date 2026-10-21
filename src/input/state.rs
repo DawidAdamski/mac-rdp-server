@@ -4,6 +4,8 @@
 //! in `cgevent.rs`; this module decides *what* to inject, that one decides
 //! *how*.
 
+use std::time::{Duration, Instant};
+
 use super::MouseButton;
 use super::keymap::Modifier;
 
@@ -172,6 +174,100 @@ pub enum MoveKind {
     OtherDrag,
 }
 
+/// How far a press may land from the one before it and still continue a click
+/// sequence, in points (F-003.28).
+///
+/// Deliberately tight: an RDP client sends an absolute position, so there is
+/// none of the hand tremor a press from a real mouse carries. The value is a
+/// guess that AC-17 and AC-18 are there to correct — loosen it if a double
+/// click gets lost when the cursor shifts a point between the two presses.
+pub const CLICK_SLOP: f64 = 4.0;
+
+/// What the previous press was, so the next one can tell whether it continues
+/// the sequence.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct LastPress {
+    button: MouseButton,
+    at: Instant,
+    x: f64,
+    y: f64,
+    count: i64,
+}
+
+/// Counts the clicks in a sequence, so macOS can tell a double click from two
+/// single ones (F-003.27).
+///
+/// RDP carries no click count: a Mouse Event has flags and a position and
+/// nothing else (MS-RDPBCGR 2.2.8.1.1.3.1.1.3). So the server derives it the
+/// way the window server does for real hardware — same button, soon enough,
+/// close enough — and `cgevent.rs` puts the number in `MOUSE_EVENT_CLICK_STATE`,
+/// which is where AppKit reads `NSEvent.clickCount` from.
+#[derive(Debug, Clone, Copy)]
+pub struct ClickCounter {
+    /// The user's double-click interval, read from the system (F-003.29).
+    interval: Duration,
+    last: Option<LastPress>,
+}
+
+impl ClickCounter {
+    #[must_use]
+    pub fn new(interval: Duration) -> Self {
+        Self { interval, last: None }
+    }
+
+    /// The count a press should carry, remembered for the press after it.
+    ///
+    /// `now` is an argument rather than read here so the whole rule is
+    /// testable without waiting in real time (F-003.32).
+    pub fn press(&mut self, button: MouseButton, x: f64, y: f64, now: Instant) -> i64 {
+        let count = match self.last {
+            Some(last)
+                if last.button == button
+                    && now.duration_since(last.at) <= self.interval
+                    && within_slop(last.x, last.y, x, y) =>
+            {
+                // No ceiling at 2: a triple click selects a paragraph, and
+                // real hardware keeps counting (F-003.30).
+                last.count.saturating_add(1)
+            }
+            _ => 1,
+        };
+        self.last = Some(LastPress {
+            button,
+            at: now,
+            x,
+            y,
+            count,
+        });
+        count
+    }
+
+    /// The count a release should carry: the same as the press it ends.
+    ///
+    /// Real hardware reports the count on both halves of a click, and our
+    /// release carried 0 until F-003.27 — a value no mouse ever sends.
+    #[must_use]
+    pub fn release(&self, button: MouseButton) -> i64 {
+        match self.last {
+            Some(last) if last.button == button => last.count,
+            // A release with no matching press is still a release of a single
+            // click as far as any application can tell.
+            _ => 1,
+        }
+    }
+
+    /// Forgets the sequence, so the first click of a new session cannot become
+    /// the second click of the one before it (F-003.31).
+    pub fn reset(&mut self) {
+        self.last = None;
+    }
+}
+
+/// Whether two press positions are close enough to belong to one sequence.
+fn within_slop(ax: f64, ay: f64, bx: f64, by: f64) -> bool {
+    (bx - ax).hypot(by - ay) <= CLICK_SLOP
+}
+
 /// Why the input state is being reset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResetCause {
@@ -278,6 +374,171 @@ impl ScreenGeometry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The interval the tests reason about; the real one comes from the
+    /// system (F-003.29) and is not a constant anywhere in the code.
+    const INTERVAL: Duration = Duration::from_millis(500);
+
+    fn counter() -> ClickCounter {
+        ClickCounter::new(INTERVAL)
+    }
+
+    #[test]
+    fn f003_28_a_second_press_in_the_interval_is_a_double_click() {
+        let mut clicks = counter();
+        let t0 = Instant::now();
+
+        assert_eq!(clicks.press(MouseButton::Left, 100.0, 100.0, t0), 1);
+        assert_eq!(
+            clicks.press(MouseButton::Left, 100.0, 100.0, t0 + Duration::from_millis(120)),
+            2,
+            "two presses on the spot, well inside the interval, are one double click"
+        );
+    }
+
+    #[test]
+    fn f003_28_a_press_on_the_interval_boundary_still_counts() {
+        let mut clicks = counter();
+        let t0 = Instant::now();
+
+        clicks.press(MouseButton::Left, 10.0, 10.0, t0);
+        assert_eq!(
+            clicks.press(MouseButton::Left, 10.0, 10.0, t0 + INTERVAL),
+            2,
+            "the interval is inclusive: exactly on it is still a double click"
+        );
+    }
+
+    #[test]
+    fn f003_28_a_press_after_the_interval_starts_over() {
+        let mut clicks = counter();
+        let t0 = Instant::now();
+
+        clicks.press(MouseButton::Left, 10.0, 10.0, t0);
+        assert_eq!(
+            clicks.press(MouseButton::Left, 10.0, 10.0, t0 + INTERVAL + Duration::from_millis(1)),
+            1,
+            "a millisecond too late is a new sequence, not a double click"
+        );
+    }
+
+    #[test]
+    fn f003_28_a_press_too_far_away_starts_over() {
+        let mut clicks = counter();
+        let t0 = Instant::now();
+
+        clicks.press(MouseButton::Left, 100.0, 100.0, t0);
+        let far = 100.0 + CLICK_SLOP + 0.5;
+        assert_eq!(
+            clicks.press(MouseButton::Left, far, 100.0, t0 + Duration::from_millis(50)),
+            1,
+            "AC-18: two quick clicks on different things must not open the second"
+        );
+    }
+
+    #[test]
+    fn f003_28_a_press_just_inside_the_slop_still_counts() {
+        let mut clicks = counter();
+        let t0 = Instant::now();
+
+        clicks.press(MouseButton::Left, 100.0, 100.0, t0);
+        // Diagonal, so it also proves the distance is radial and not per-axis.
+        let step = CLICK_SLOP / 2.0_f64.sqrt() - 0.01;
+        assert_eq!(
+            clicks.press(
+                MouseButton::Left,
+                100.0 + step,
+                100.0 + step,
+                t0 + Duration::from_millis(50)
+            ),
+            2
+        );
+    }
+
+    #[test]
+    fn f003_28_a_different_button_starts_over() {
+        let mut clicks = counter();
+        let t0 = Instant::now();
+
+        clicks.press(MouseButton::Left, 10.0, 10.0, t0);
+        assert_eq!(
+            clicks.press(MouseButton::Right, 10.0, 10.0, t0 + Duration::from_millis(50)),
+            1,
+            "a right click does not continue a left click's sequence"
+        );
+    }
+
+    #[test]
+    fn f003_30_a_third_press_counts_three() {
+        let mut clicks = counter();
+        let t0 = Instant::now();
+
+        clicks.press(MouseButton::Left, 10.0, 10.0, t0);
+        clicks.press(MouseButton::Left, 10.0, 10.0, t0 + Duration::from_millis(100));
+        assert_eq!(
+            clicks.press(MouseButton::Left, 10.0, 10.0, t0 + Duration::from_millis(200)),
+            3,
+            "F-003.30: no ceiling at two, or a triple click cannot select a paragraph"
+        );
+    }
+
+    #[test]
+    fn f003_27_a_release_carries_the_count_of_its_press() {
+        let mut clicks = counter();
+        let t0 = Instant::now();
+
+        clicks.press(MouseButton::Left, 10.0, 10.0, t0);
+        assert_eq!(clicks.release(MouseButton::Left), 1);
+
+        clicks.press(MouseButton::Left, 10.0, 10.0, t0 + Duration::from_millis(100));
+        assert_eq!(
+            clicks.release(MouseButton::Left),
+            2,
+            "both halves of a double click carry two, as real hardware does"
+        );
+    }
+
+    #[test]
+    fn f003_27_a_release_of_an_unpressed_button_is_a_single_click() {
+        let mut clicks = counter();
+        clicks.press(MouseButton::Left, 10.0, 10.0, Instant::now());
+        assert_eq!(
+            clicks.release(MouseButton::Right),
+            1,
+            "never 0: no mouse sends a release with no click count"
+        );
+    }
+
+    #[test]
+    fn f003_31_a_reset_forgets_the_sequence() {
+        let mut clicks = counter();
+        let t0 = Instant::now();
+
+        clicks.press(MouseButton::Left, 10.0, 10.0, t0);
+        clicks.reset();
+        assert_eq!(
+            clicks.press(MouseButton::Left, 10.0, 10.0, t0 + Duration::from_millis(50)),
+            1,
+            "the first click after a reconnect is not the second click of the session before"
+        );
+        assert_eq!(clicks.release(MouseButton::Left), 1);
+    }
+
+    #[test]
+    fn f003_28_a_sequence_continues_from_the_latest_press() {
+        let mut clicks = counter();
+        let t0 = Instant::now();
+
+        // Three presses, each inside the interval of the one before but the
+        // third beyond the interval of the first: the sequence is a chain, so
+        // it keeps counting.
+        clicks.press(MouseButton::Left, 10.0, 10.0, t0);
+        clicks.press(MouseButton::Left, 10.0, 10.0, t0 + Duration::from_millis(400));
+        assert_eq!(
+            clicks.press(MouseButton::Left, 10.0, 10.0, t0 + Duration::from_millis(800)),
+            3
+        );
+    }
 
     #[test]
     fn modifiers_combine_into_flags() {

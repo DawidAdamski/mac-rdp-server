@@ -41,6 +41,9 @@ objc2-app-kit = { version = "0.3", features = [
     "NSApplication", "NSStatusBar", "NSStatusItem", "NSStatusBarButton",
     "NSMenu", "NSMenuItem", "NSButton", "NSControl", "NSResponder",
     "NSView", "NSWindow", "NSImage", "NSWorkspace", "NSRunningApplication",
+    # NSEvent is for the double-click interval in `input`, not the menu bar
+    # (F-003.29): it is a System Settings slider, so it cannot be a constant.
+    "NSEvent",
 ] }
 objc2-foundation = { version = "0.3", features = [
     "NSString", "NSGeometry", "NSTimer", "NSDate", "NSURL",

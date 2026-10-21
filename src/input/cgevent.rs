@@ -12,16 +12,19 @@
 //! permission (ADR-0003 §5). So the sink checks the permission up front and, if
 //! missing, logs once and drops events instead of pretending to work.
 
+use std::time::{Duration, Instant};
+
 use anyhow::Result;
 use core_graphics::event::{
     CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGKeyCode, CGMouseButton, EventField, ScrollEventUnit,
 };
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::geometry::CGPoint;
+use objc2_app_kit::NSEvent;
 use tracing::{debug, info, trace, warn};
 
 use super::keymap::{self, MappedKey};
-use super::state::{self, Buttons, Modifiers, MoveKind, ResetAction, ResetCause, ScreenGeometry};
+use super::state::{self, Buttons, ClickCounter, Modifiers, MoveKind, ResetAction, ResetCause, ScreenGeometry};
 use super::unicode::SurrogateAssembler;
 use super::{InputSink, KeyEvent, MouseButton, PointerEvent};
 use crate::perms::{self, Permission, PermissionState};
@@ -39,6 +42,9 @@ pub struct CgEventSink {
     dropped: u64,
     /// Pending halves of UTF-16 surrogate pairs (F-003a.14).
     surrogates: SurrogateAssembler,
+    /// Turns a stream of presses into click counts, so a double click is a
+    /// double click and not two single ones (F-003.27).
+    clicks: ClickCounter,
 }
 
 impl CgEventSink {
@@ -70,6 +76,7 @@ impl CgEventSink {
             cursor: CGPoint::new(geometry.origin_x, geometry.origin_y),
             dropped: 0,
             surrogates: SurrogateAssembler::default(),
+            clicks: ClickCounter::new(double_click_interval()),
         })
     }
 
@@ -128,8 +135,16 @@ impl CgEventSink {
                 }
             }
             PointerEvent::Button { button, pressed } => {
+                let (x, y) = (self.cursor.x, self.cursor.y);
+                // Before `buttons.set`, so a press is counted against where the
+                // previous press landed rather than against itself.
+                let clicks = if pressed {
+                    self.clicks.press(button, x, y, Instant::now())
+                } else {
+                    self.clicks.release(button)
+                };
                 self.buttons.set(button, pressed);
-                if let Some(ev) = self.build_button_event(source, button, pressed) {
+                if let Some(ev) = self.build_button_event(source, button, pressed, clicks) {
                     self.post(&ev);
                 }
             }
@@ -231,13 +246,18 @@ impl CgEventSink {
                     }
                 }
                 ResetAction::ReleaseButton(button) => {
-                    if let Some(ev) = self.build_button_event(source, button, false) {
+                    let clicks = self.clicks.release(button);
+                    if let Some(ev) = self.build_button_event(source, button, false, clicks) {
                         self.post(&ev);
                     }
                 }
                 ResetAction::SetCapsLock(_) => {}
             }
         }
+        // After the releases above, which still need the count of the press
+        // they end, and before anything the next session sends (F-003.31).
+        self.clicks.reset();
+
         // F-003.26: one line per reset, quiet when there was nothing to release.
         let (modifiers, buttons) = state::released_counts(&actions);
         if modifiers + buttons > 0 {
@@ -258,9 +278,21 @@ impl CgEventSink {
     /// Split out so the button-number wiring can be unit-tested against a real
     /// `CGEvent` without posting it — that wiring is exactly what was wrong for
     /// the middle button.
-    fn build_button_event(&self, source: &CGEventSource, button: MouseButton, pressed: bool) -> Option<CGEvent> {
+    fn build_button_event(
+        &self,
+        source: &CGEventSource,
+        button: MouseButton,
+        pressed: bool,
+        clicks: i64,
+    ) -> Option<CGEvent> {
         let (event_type, cg_button) = button_event(button, pressed);
         let ev = CGEvent::new_mouse_event(source.clone(), event_type, self.cursor, cg_button).ok()?;
+        // Without this every press we inject says "first click of a sequence"
+        // — a fresh event carries 1, and a release carries 0, which no real
+        // mouse ever sends. AppKit reports this field as `NSEvent.clickCount`,
+        // and Finder opens a folder at 2, so a double click is impossible
+        // until it is set (F-003.27, measured 2026-10-21).
+        ev.set_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE, clicks);
         // For the "other" buttons macOS keys off MOUSE_EVENT_BUTTON_NUMBER, not
         // the CGMouseButton, so it must be set explicitly — including for the
         // middle button (number 2), which otherwise does nothing (F-003.7).
@@ -342,6 +374,42 @@ fn build_unicode_event(source: &CGEventSource, c: char, pressed: bool) -> Option
     ev.set_string_from_utf16_unchecked(c.encode_utf16(&mut units));
     ev.set_flags(CGEventFlags::empty());
     Some(ev)
+}
+
+/// The interval to fall back on if the system gives an unusable one.
+///
+/// macOS's own default, so a nonsense reading degrades to normal behaviour
+/// rather than to no double click at all.
+const FALLBACK_DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
+
+/// The user's double-click interval, from the system (F-003.29).
+///
+/// AppKit rather than a constant, because this is a slider in System Settings
+/// and a hardcoded value would ignore it. Measured 2026-10-21: the class
+/// method works in a process with no `NSApplication` — which is what CLI mode
+/// is — and off the main thread, which is where the input task runs
+/// (F-003.4); in `objc2-app-kit` 0.3.2 it is safe, so it needs no `unsafe`
+/// allowance in this module.
+///
+/// Read once per sink. A change to the slider mid-session is not picked up
+/// until the next reconnect, which is a fair trade for not calling into
+/// AppKit on every click.
+fn double_click_interval() -> Duration {
+    let seconds = NSEvent::doubleClickInterval();
+    // `from_secs_f64` panics on a negative or NaN input, and this value comes
+    // from outside the process.
+    if seconds.is_finite() && seconds > 0.0 {
+        let interval = Duration::from_secs_f64(seconds);
+        debug!(?interval, "double-click interval read from the system");
+        interval
+    } else {
+        warn!(
+            seconds,
+            fallback_ms = FALLBACK_DOUBLE_CLICK_INTERVAL.as_millis(),
+            "the system reported an unusable double-click interval; using the default"
+        );
+        FALLBACK_DOUBLE_CLICK_INTERVAL
+    }
 }
 
 /// The `(CGEventType, CGMouseButton)` for a button press or release.
@@ -435,6 +503,9 @@ mod tests {
             cursor,
             dropped: 0,
             surrogates: SurrogateAssembler::default(),
+            // A fixed interval, not the system's: these tests assert the rule,
+            // not the machine they run on.
+            clicks: ClickCounter::new(Duration::from_millis(500)),
         }
     }
 
@@ -492,15 +563,90 @@ mod tests {
         let sink = sink_at(ScreenGeometry::new(0.0, 0.0, 1.0), CGPoint::new(10.0, 20.0));
 
         let ev = sink
-            .build_button_event(&source, MouseButton::Middle, true)
+            .build_button_event(&source, MouseButton::Middle, true, 1)
             .expect("build middle-button event");
         assert_eq!(ev.get_type() as u32, CGEventType::OtherMouseDown as u32);
         assert_eq!(ev.get_integer_value_field(EventField::MOUSE_EVENT_BUTTON_NUMBER), 2);
 
         let up = sink
-            .build_button_event(&source, MouseButton::Middle, false)
+            .build_button_event(&source, MouseButton::Middle, false, 1)
             .expect("build middle-button release");
         assert_eq!(up.get_type() as u32, CGEventType::OtherMouseUp as u32);
+    }
+
+    /// F-003.27: the field AppKit reads as `NSEvent.clickCount` is actually
+    /// set — on the release as well as the press, which is where a fresh
+    /// event carries 0 and no real mouse does.
+    #[test]
+    fn f003_27_button_events_carry_the_click_count() {
+        let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
+            return; // headless CI; the rule itself is covered in `state`
+        };
+        let sink = sink_at(ScreenGeometry::new(0.0, 0.0, 1.0), CGPoint::new(10.0, 20.0));
+
+        for clicks in [1, 2, 3] {
+            let down = sink
+                .build_button_event(&source, MouseButton::Left, true, clicks)
+                .expect("build a press");
+            assert_eq!(
+                down.get_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE),
+                clicks,
+                "a press must carry its click count"
+            );
+
+            let up = sink
+                .build_button_event(&source, MouseButton::Left, false, clicks)
+                .expect("build a release");
+            assert_eq!(
+                up.get_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE),
+                clicks,
+                "a release must carry the count of the press it ends"
+            );
+        }
+    }
+
+    /// F-003.27, the regression this whole group exists for: a freshly built
+    /// event carries a count that makes a double click impossible, so the
+    /// assertion is that we no longer leave it alone.
+    #[test]
+    fn f003_27_an_untouched_event_could_never_be_a_double_click() {
+        let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
+            return;
+        };
+        let bare = CGEvent::new_mouse_event(
+            source.clone(),
+            CGEventType::LeftMouseDown,
+            CGPoint::new(10.0, 20.0),
+            CGMouseButton::Left,
+        )
+        .expect("build a bare press");
+        assert_eq!(
+            bare.get_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE),
+            1,
+            "measured 2026-10-21: a bare press is always the first click of a sequence"
+        );
+
+        let sink = sink_at(ScreenGeometry::new(0.0, 0.0, 1.0), CGPoint::new(10.0, 20.0));
+        let ours = sink
+            .build_button_event(&source, MouseButton::Left, true, 2)
+            .expect("build a press");
+        assert_eq!(
+            ours.get_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE),
+            2,
+            "ours must be able to say otherwise"
+        );
+    }
+
+    /// F-003.29: the interval comes from the system, and this test is also the
+    /// evidence that the AppKit call is usable where the sink actually lives —
+    /// a test thread is not the main thread and has no `NSApplication`.
+    #[test]
+    fn f003_29_the_double_click_interval_comes_from_the_system() {
+        let interval = double_click_interval();
+        assert!(
+            interval > Duration::ZERO && interval < Duration::from_secs(10),
+            "a usable interval, got {interval:?}"
+        );
     }
 
     /// F-003.22: modifier releases are posted with the real modifier key codes,
