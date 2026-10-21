@@ -17,8 +17,8 @@ use std::sync::atomic::AtomicBool;
 
 use anyhow::{Context as _, Result};
 use ironrdp_pdu::rdp::capability_sets::BitmapCodecs;
-use ironrdp_server::{RdpServer, TlsIdentityCtx};
-use tokio::sync::watch;
+use ironrdp_server::{RdpServer, ServerEvent, TlsIdentityCtx};
+use tokio::sync::{oneshot, watch};
 use tracing::info;
 
 pub use display::MacRdpDisplay;
@@ -43,7 +43,19 @@ pub struct SessionParams<'a> {
     /// Published client count (F-007.26). `session` only counts; the decision
     /// about what to do with the number is made outside this boundary.
     pub clients: watch::Sender<usize>,
+    /// Called once the engine is **actually accepting connections** (F-111.11).
+    ///
+    /// Not a convenience: the menu bar paints "listening" from this, and a
+    /// caller cannot see the moment the socket goes up, because the engine
+    /// binds inside its own run loop. Telling the menu "listening" before that
+    /// produced exactly the failure this parameter exists to prevent — a
+    /// client refused by a server the menu said was up (caught by CI,
+    /// 2026-10-21).
+    pub ready: ReadyNotifier,
 }
+
+/// Called once the server is accepting connections. See [`SessionParams::ready`].
+pub type ReadyNotifier = Box<dyn FnOnce() + Send>;
 
 /// Builds the server and serves connections until it stops.
 ///
@@ -61,6 +73,7 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
         dispatcher,
         encoder,
         clients,
+        ready,
     } = params;
 
     let identity = TlsIdentityCtx::init_from_paths(cert_path, key_path)
@@ -109,6 +122,30 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
         .with_display_suppressed_handle(suppressed)
         .build();
 
+    // The engine answers events only from inside its accept loop, which it
+    // reaches after a successful bind — so an answer to this question *is* the
+    // readiness signal. Asking before `run()` is safe: the channel is
+    // unbounded, and the question waits in it until the loop starts. If the
+    // bind fails instead, the server is dropped with the question still in its
+    // queue, the reply channel closes, and this task ends without notifying
+    // anyone.
+    let events = server.event_sender().clone();
+    let announce = tokio::spawn(async move {
+        let (reply, answer) = oneshot::channel();
+        if events.send(ServerEvent::GetLocalAddr(reply)).is_err() {
+            return;
+        }
+        if let Ok(local_addr) = answer.await {
+            // `None` would mean the engine is in its loop without having
+            // recorded an address, which it never is; either way, being in the
+            // loop is the fact worth reporting.
+            info!(?local_addr, "accepting connections");
+            ready();
+        }
+    });
+
     info!(%bind_addr, ?encoder, "serving RDP over TLS");
-    server.run().await
+    let result = server.run().await;
+    announce.abort();
+    result
 }

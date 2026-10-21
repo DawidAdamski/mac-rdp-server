@@ -105,6 +105,9 @@ fn run_server_with<T: Send + 'static>(
                         dispatcher,
                         encoder,
                         clients: tokio::sync::watch::channel(0).0,
+                        // These tests wait on the socket itself, so the
+                        // readiness callback has nothing to tell them.
+                        ready: Box::new(|| {}),
                     })
                     .await;
                 });

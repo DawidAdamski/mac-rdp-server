@@ -46,15 +46,15 @@ use crate::{input, perms, power, session, tls};
 
 /// Runs the service until `stop` fires, the session ends, or something fails.
 ///
-/// `on_listening` is called once, after everything that can fail at startup has
-/// succeeded — the port is free, the certificate is in place, capture is
-/// running — and immediately before the listening socket goes up. A caller
-/// that paints a state somewhere (the menu bar does) can trust it: being told
-/// "listening" and then finding out the port was taken is exactly what
-/// F-111.11 forbids.
+/// `on_listening` is called once, from the moment the protocol engine is
+/// **actually accepting connections** — not when it has been asked to start.
+/// A caller that paints a state somewhere (the menu bar does) can trust it:
+/// being told "listening" and then having a client refused is exactly what
+/// F-111.11 forbids, and is what happened while this was reported a few
+/// instructions too early (CI, 2026-10-21).
 pub async fn run<F>(config: &Config, stop: oneshot::Receiver<()>, on_listening: F) -> Result<()>
 where
-    F: FnOnce(),
+    F: FnOnce() + Send + 'static,
 {
     // Checked first because it is the cheapest thing that can fail and the
     // likeliest: a second server, or a copy left running in another terminal.
@@ -277,7 +277,7 @@ async fn serve<F>(
     on_listening: F,
 ) -> Result<()>
 where
-    F: FnOnce(),
+    F: FnOnce() + Send + 'static,
 {
     let desktop_width = u16::try_from(width).context("desktop width does not fit in u16")?;
     let desktop_height = u16::try_from(height).context("desktop height does not fit in u16")?;
@@ -305,9 +305,8 @@ where
         dispatcher,
         encoder: config.encoder,
         clients,
+        ready: Box::new(on_listening),
     });
-
-    on_listening();
 
     tokio::select! {
         result = server => result,

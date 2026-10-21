@@ -79,6 +79,9 @@ fn non_black_fraction(codecs: BitmapCodecs) -> f64 {
                         dispatcher,
                         encoder: EncoderKind::Damage,
                         clients: tokio::sync::watch::channel(0).0,
+                        // These tests wait on the socket itself, so the
+                        // readiness callback has nothing to tell them.
+                        ready: Box::new(|| {}),
                     })
                     .await;
                 });
@@ -162,6 +165,9 @@ fn reconnect_fractions(rounds: usize) -> Vec<f64> {
                         dispatcher,
                         encoder: EncoderKind::Damage,
                         clients: tokio::sync::watch::channel(0).0,
+                        // These tests wait on the socket itself, so the
+                        // readiness callback has nothing to tell them.
+                        ready: Box::new(|| {}),
                     })
                     .await;
                 });
@@ -234,6 +240,9 @@ fn observe_damage() -> DamageObservation {
                         dispatcher,
                         encoder: EncoderKind::Damage,
                         clients: tokio::sync::watch::channel(0).0,
+                        // These tests wait on the socket itself, so the
+                        // readiness callback has nothing to tell them.
+                        ready: Box::new(|| {}),
                     })
                     .await;
                 });

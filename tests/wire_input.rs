@@ -121,6 +121,9 @@ fn pointer_events_from_the_wire() -> Vec<PointerEvent> {
                         dispatcher,
                         encoder: EncoderKind::Damage,
                         clients: tokio::sync::watch::channel(0).0,
+                        // These tests wait on the socket itself, so the
+                        // readiness callback has nothing to tell them.
+                        ready: Box::new(|| {}),
                     })
                     .await;
                 });

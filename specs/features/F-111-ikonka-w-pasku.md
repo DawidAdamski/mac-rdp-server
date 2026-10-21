@@ -201,6 +201,17 @@ F-111.18 i F-111.19. Zapisane też w ADR-0015 §Konsekwencje.
 | AC-3 | **nowy** `tests/cli_mode.rs` na prawdziwej binarce: ta sama linia startowa, ten sam adres, `Ctrl-C` kończy kodem 0 | zaliczone |
 | F-111.10, F-111.11, F-111.12 | **nowy** `tests/menubar_service.rs` — pięć testów bez GUI: świeży nadzorca nie nasłuchuje, przełącznik otwiera i zamyka gniazdo, **dziesięć cykli** zostawia wolny port, zajęty port daje `Failed` z powodem, pierwszy start sam robi certyfikat | zaliczone |
 
+**Wada znaleziona przez CI, nie przez maszynę autora (2026-10-21).** Pierwsze
+podejście zgłaszało „nasłuchuje" tuż **przed** oddaniem sterowania silnikowi,
+a silnik wiąże gniazdo dopiero w swojej pętli. Lokalnie przechodziło zawsze,
+na CI `f111_12` padło w pierwszym cyklu: `connection refused` od serwera,
+o którym przełącznik mówił, że stoi. To jest dokładnie to, czego zabrania
+F-111.11, więc poprawka poszła w źródło, nie w test: `SessionParams` dostało
+pole `ready`, a `session` woła je dopiero wtedy, gdy silnik **odpowie na
+zapytanie o swój adres** — a odpowiada wyłącznie z wnętrza pętli
+akceptującej, czyli po udanym `bind`. Nieudany `bind` nie woła niczego
+i zostaje błędem. Przebieg kontrolny: 15 × cały plik testów, 0 porażek.
+
 Zakres automatyzacji wyszedł szerszy, niż spec zakładał: AC-8 miało być
 w całości ręczne, a jego mierzalna połowa (dziesięć cykli, wolny port za
 każdym razem) jest w CI. Ręcznie zostaje to, co widać.
