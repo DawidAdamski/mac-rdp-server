@@ -649,6 +649,151 @@ w tę i z powrotem, 20 razy, szybko. Zamknij i otwórz okna.
 
 ---
 
+# Blok G — ikonka w pasku menu (F-111)
+
+**Czego ten blok dotyczy.** Nowy tryb: `--menu-bar`. Serwer startuje
+**wyłączony** — uruchomienie programu nie jest uruchomieniem usługi (F-111.18,
+Twoje wymaganie z 2026-10-21) — a włącza się i wyłącza z menu, bez restartu
+procesu.
+
+**Jak uruchomić.** Z terminala, żeby widzieć log:
+
+```sh
+./target/release/mac-rdp-server --menu-bar
+```
+
+Zostaw to okno terminala otwarte. Ikonka pojawia się po prawej stronie górnego
+paska. **Uwaga:** uprawnienia TCC należą do programu, który uruchamia serwer,
+czyli do Twojego terminala — tak samo jak dotąd, nic się tu nie zmienia.
+
+---
+
+## G-1 — Ikonka jest, Docka nie ma, portu nie ma (F-111 AC-4, AC-12)
+
+**Co zrobić.** Uruchom jak wyżej. **Nie klikaj jeszcze nic.** Potem
+w drugim terminalu:
+
+```sh
+lsof -nP -iTCP:3389
+```
+
+**Co ma się stać.**
+- ikonka widać w pasku (kółko z poziomą strzałką, niewypełnione);
+- w Docku **nie ma nic** — żadnej nowej ikony programu;
+- `lsof` **nie pokazuje nic** — nikt nie nasłuchuje;
+- w pasku menu **nie ma** systemowego wskaźnika nagrywania ekranu
+  (F-111.19 — usługa wyłączona znaczy też „ekran nie jest przechwytywany");
+- w logu: `menu bar ready; the server is NOT listening until you start it from
+  the menu`.
+
+**ODPOWIEDŹ:**
+- Wynik:
+- Czy ikonka była widoczna i jak wyglądała:
+- Czy coś pojawiło się w Docku:
+- Wynik `lsof`:
+- Czy był wskaźnik nagrywania ekranu:
+
+---
+
+## G-2 — Menu pokazuje adres i uprawnienia (F-111 AC-5)
+
+**Co zrobić.** Kliknij ikonkę.
+
+**Co ma się stać.** Menu z pięcioma rzeczami: `Not listening`,
+`Would listen on 127.0.0.1:3389`, `Start the server`, dwa wiersze uprawnień
+(`Screen Recording: granted`, `Accessibility: granted` — albo `NOT granted —
+click to open Settings`), `Quit mac-rdp-server`.
+
+**ODPOWIEDŹ:**
+- Wynik:
+- Co dokładnie było w menu (przepisz wiersze):
+
+---
+
+## G-3 — Włączenie i wyłączenie dostępu z menu (F-111 AC-6, AC-7)
+
+**To jest sedno tego bloku.**
+
+**Co zrobić.**
+1. Przy **wyłączonej** usłudze spróbuj połączyć się z `mstsc`. Ma **nie**
+   połączyć się.
+2. Kliknij `Start the server`. Poczekaj chwilę (startuje capture, więc to nie
+   jest natychmiastowe) i połącz się tym samym klientem.
+3. Przy podłączonym kliencie kliknij ikonkę → `Stop the server`.
+
+**Co ma się stać.** Po punkcie 2 obraz jest, bez restartu programu; ikonka
+zmienia się na wypełnioną, a menu na `Listening on 127.0.0.1:3389` i
+`Stop the server`. Po punkcie 3 klient zostaje **rozłączony**, ikonka wraca do
+niewypełnionej. W logu `server started from the menu` i `server stopped`.
+
+**ODPOWIEDŹ:**
+- Wynik:
+- Czy przy wyłączonej usłudze klient się nie połączył:
+- Czy po włączeniu był obraz:
+- Czy wyłączenie rozłączyło klienta:
+- Czy ikonka zmieniała wygląd:
+- Log:
+
+---
+
+## G-4 — Dziesięć cykli i czysty port (F-111 AC-8)
+
+**Co zrobić.** Dziesięć razy pod rząd: `Start the server`, połącz klientem,
+`Stop the server`. Po ostatnim wyłączeniu:
+
+```sh
+lsof -nP -iTCP:3389
+ps -o rss= -p $(pgrep -f 'mac-rdp-server --menu-bar')
+```
+
+**Co ma się stać.** Za każdym razem da się połączyć, `lsof` po wyłączeniu nie
+pokazuje nic, a zużycie pamięci po dziesiątym cyklu jest tego samego rzędu co
+po pierwszym (zanotuj obie liczby — dokładna wartość nie ma znaczenia,
+dziesięciokrotny wzrost ma). W logu **nie powinno** być linii
+`the address is still taken after stopping the server`.
+
+**ODPOWIEDŹ:**
+- Wynik:
+- Czy każdy z dziesięciu startów dał połączenie:
+- `lsof` po ostatnim wyłączeniu:
+- RSS po pierwszym i po dziesiątym cyklu:
+- Czy w logu była linia o zajętym adresie:
+
+---
+
+## G-5 — Zajęty port i Quit (F-111 AC-9 … AC-11)
+
+**Co zrobić.**
+1. **Zajęty port.** Uruchom zwykły serwer z terminala (`./target/release/mac-rdp-server`),
+   a potem drugi raz ten sam program z `--menu-bar` i kliknij `Start the server`.
+2. **Brak uprawnienia** (tylko jeśli chcesz — to jest odbieranie i oddawanie
+   grantu TCC): odbierz Screen Recording terminalowi i kliknij wiersz
+   uprawnienia w menu.
+3. **Konfiguracja.** Zatrzymaj wszystko, wpisz do `~/.config/mac-rdp-server.toml`
+   `port = 33891`, uruchom `--menu-bar` jeszcze raz i otwórz menu.
+4. **Quit.** Przy **włączonej** usłudze i podłączonym kliencie wybierz
+   `Quit mac-rdp-server`.
+
+**Co ma się stać.**
+1. Usługa się **nie** włącza, ikonka zmienia się w trójkąt ostrzegawczy, a
+   pierwszy wiersz menu mówi `Could not start: cannot listen on …` z powodem.
+   Kolejne kliknięcie `Start the server` próbuje jeszcze raz.
+2. Wiersz mówi, którego uprawnienia brakuje, a kliknięcie otwiera właściwy
+   panel Ustawień.
+3. Menu pokazuje `Would listen on 127.0.0.1:33891` — port z pliku, nie
+   domyślny (spięcie z F-112).
+4. Proces się kończy, ikonka znika z paska, klient zostaje rozłączony,
+   a `lsof -nP -iTCP:<port>` nic nie pokazuje.
+
+**ODPOWIEDŹ:**
+- Wynik (1. zajęty port):
+- Wynik (2. uprawnienie — albo „pominięte"):
+- Wynik (3. port z pliku):
+- Wynik (4. Quit):
+- Log:
+
+---
+
 ## Co się stanie z Twoimi odpowiedziami
 
 Dla każdego `PRZESZŁO` przenoszę wynik do sekcji Status właściwej
@@ -662,4 +807,5 @@ było złe. Nie naprawiam po cichu.
 
 Blok A zamyka F-008 i część F-004. Blok B zamyka F-003. Blok C zamyka F-007.
 Bloki A+B+C+F razem zamykają **Falę 3**. Blok E zamyka F-110 i może poczekać
-na wydanie.
+na wydanie. Blok G zamyka F-111 i należy już do Fali 5 — nie wstrzymuje
+Fali 3.

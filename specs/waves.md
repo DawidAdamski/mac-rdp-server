@@ -383,8 +383,11 @@ Właściciel zaakceptował naraz pięć dokumentów i rekomendowaną kolejność
    iteracje 1e i 1f F-007, bo dzień pracy właściciela ujawnił dwie dalsze
    przyczyny zamarzania (F-007 §8e, §8g) — kolejność się nie zmieniła, doszła
    praca przed nią.
-4. **F-111** — ikonka w pasku. Następne zadanie; nic go już nie blokuje poza
-   statusem ADR-0015 (Proposed), który F-111.16 wymaga rozstrzygnąć.
+4. **F-111** — ikonka w pasku. **Zrobione 2026-10-21.** ADR-0015 był Accepted
+   od 2026-10-19, więc F-111.16 miało podstawę; w trakcie dopisane **F-111.18
+   i F-111.19** na wymaganie właściciela („To ze aplikacja jest odpalona to
+   nie powinno od razu znaczyc ze jest usluga"), czyli serwer w trybie paska
+   startuje **wyłączony** i wyłączony nie przechwytuje ekranu.
 
 ### Pomiar 2026-10-19 — dlaczego RDP zamarza po dłuższej bezczynności
 
@@ -514,7 +517,7 @@ Fala, po której instalacja nie wymaga toolchaina Rusta w głowie użytkownika.
 | F-106 | Bundle `.app`, `Info.plist`, własna tożsamość TCC, podpis |
 | F-109 | Usługa launchd (LaunchAgent) + podkomendy CLI: `install`, `uninstall`, `status` |
 | F-110 | Dystrybucja i dokumentacja: README, licencje, `SECURITY.md`, tap Homebrew, GitHub Pages, donacje — **Implemented 2026-10-12** (`F-110-dystrybucja.md`) |
-| F-111 | Ikonka w pasku menu z włącznikiem serwera — **Approved 2026-10-19** (`F-111-ikonka-w-pasku.md`), opiera się na **ADR-0015** (Proposed); F-112 odblokowane, więc to jest następne zadanie |
+| F-111 | Ikonka w pasku menu z włącznikiem serwera — **Implemented 2026-10-21** (`F-111-ikonka-w-pasku.md`), na **ADR-0015** (Accepted); AC-1 … AC-3 i zachowanie gniazda zaliczone automatycznie, część wzrokowa czeka na właściciela (blok G w `testy-reczne.md`) |
 | F-112 | Domyślny plik konfiguracyjny `~/.config/mac-rdp-server.toml` — **Implemented 2026-10-21** (`F-112-domyslna-konfiguracja.md`), warunek wstępny dla F-111; AC-1 … AC-7 zaliczone binarką, weryfikacja w §6 specu |
 
 **Dwa fakty o macOS, które kształtują tę falę:**

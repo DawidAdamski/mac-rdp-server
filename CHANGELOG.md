@@ -46,6 +46,18 @@ the manifest, or one that has no section in this file.
 
 ### Added
 
+- A menu-bar mode: `mac-rdp-server --menu-bar` puts an icon in the menu bar
+  with the address, the state of both permissions, and a switch that starts and
+  stops the server without restarting the program. The process stays out of the
+  Dock (F-111).
+- In that mode the server starts **stopped**: running the program is not
+  running the service, and while the service is off nothing captures the screen
+  either — so the system's screen-recording indicator stays off too
+  (F-111.18, F-111.19).
+- A failed start says why. A busy port, a missing certificate or a refused
+  permission leaves the switch off, turns the icon into a warning triangle and
+  puts the reason in the first line of the menu instead of failing silently
+  where no terminal can see it (F-111.11).
 - Settings can be given once instead of at every start: the server reads
   `~/.config/mac-rdp-server.toml` without being pointed at it. Precedence is
   command line, then the file named by `--config`, then that default file, then
@@ -65,6 +77,12 @@ the manifest, or one that has no section in this file.
 
 ### Changed
 
+- `main` no longer owns the service. Everything the server needs — capture,
+  input, the display wake lock, the socket — is built, run and torn down by one
+  module, because the menu bar has to do that many times in one process where
+  `main` only ever did it once. CLI mode is unchanged from the outside, and an
+  integration test on the real binary now holds that: same startup log, same
+  address, `Ctrl-C` still exits zero (F-111 AC-3).
 - The Homebrew caveat used to show an example configuration being copied to
   `~/.config/mac-rdp-server.toml` and stop there, as if that path were read. It
   was not, and the caveat was first corrected to show the `--config` command as

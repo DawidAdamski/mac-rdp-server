@@ -115,6 +115,19 @@ z `CLAUDE.md` §Zależności dotyczy cratów o szybkim tempie breaking changes
 - **Drzewo zależności rośnie o 15 cratów**, w tym o drugi zestaw bindingów do
   Core Foundation i Core Graphics. Czas budowania wydania (dziś 11 minut)
   wzrośnie — o ile, zmierzymy przy pierwszym wydaniu z F-111, zamiast zgadywać.
+- **Uzupełnienie zmierzone przy implementacji (2026-10-21).** Future sesji
+  **nie jest `Send`**: silnik protokołu trzyma `Rc` przez `await`
+  (`Rc<Mutex<&mut RdpServer>>` i dalsze, widoczne w błędzie kompilacji), więc
+  usługi nie da się oddać `tokio::spawn`. Musi być korzeniem `block_on` — czym
+  już jest w trybie CLI. Stąd kształt, którego ten ADR nie przewidział, choć
+  nie zmienia on decyzji: **każde uruchomienie usługi dostaje własny wątek
+  z własnym runtime'em**, a nadzorca przełącznika jest zwykłym wątkiem ze
+  zwykłym kanałem, nie zadaniem tokio. Zdanie „runtime budujemy ręcznie,
+  a główny wątek oddajemy AppKitowi" zostaje w mocy; zmienia się tylko to, ile
+  tych runtime'ów jest i kiedy powstają. Efekt uboczny jest zgodny z F-111.18
+  i F-111.19: wyłączona usługa nie trzyma ani runtime'u, ani wątków, ani
+  capture.
+
 - **Decyzja jest odwracalna w jedną stronę.** Jeśli F-106 pójdzie w stronę
   podpisanego bundla `.app`, wariant A wraca do rozważenia, bo wtedy stabilna
   tożsamość TCC jest celem samym w sobie i argument 1 się odwraca. Ten ADR

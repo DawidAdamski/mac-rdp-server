@@ -159,8 +159,71 @@ Ręczne (checklista właściciela — część macOS-owa, `CLAUDE.md` §Testy):
 
 ## 6. Status
 
-**Approved** (2026-10-19). Draft 2026-10-16, approve właściciela 2026-10-19,
-razem z ADR-0015. Kolejność: po F-007 iteracji 1d i po F-112.
+**Implemented (2026-10-21)**. Draft 2026-10-16, approve właściciela
+2026-10-19 razem z ADR-0015, F-111.18 i F-111.19 dopisane i kod 2026-10-21.
+Kolejność: po F-007 iteracji 1d i po F-112. **Część ręczna (AC-4 … AC-12)
+czeka na właściciela — blok G w `specs/testy-reczne.md`.**
+
+Implementacja:
+- `src/service.rs` (nowy) — cała usługa jako jedna rzecz do włączenia
+  i wyłączenia: capture, wstrzykiwanie inputu, blokada uśpienia ekranu
+  i gniazdo. Wcześniej robił to `main` raz na proces; pasek menu potrzebuje
+  tego wielokrotnie (F-111.10). Sygnałów nie obsługuje — co znaczy `Ctrl-C`,
+  zależy od trybu, więc decyzja została w punkcie wejścia.
+- `src/menubar/state.rs` — maszyna stanów bez AppKitu i bez serwera
+  (F-111.15): co wolno kliknąć, jaka ikonka, jakie napisy.
+- `src/menubar/supervisor.rs` — most między kliknięciem na głównym wątku
+  a usługą. Nadzorca to zwykły wątek z kanałem, a nie zadanie tokio —
+  dlaczego, niżej.
+- `src/menubar/mod.rs` — AppKit: `NSStatusItem`, menu, `NSTimer` odświeżający
+  co 0,33 s, `NSApplicationActivationPolicy::Accessory` (F-111.2). Trzecie
+  i ostatnie miejsce z `unsafe` w crate, opisane w nagłówku modułu.
+- `src/perms.rs` — `settings_url` obok `explain`, żeby słowa i miejsce, do
+  którego prowadzą, nie rozjechały się (F-111.7).
+- `src/main.rs` — przestał być `#[tokio::main]`; w trybie paska nie buduje
+  runtime'u w ogóle.
+
+**Odkrycie przy implementacji, zmieniające kształt rozwiązania.** Future
+sesji **nie jest `Send`** — silnik protokołu trzyma `Rc` przez `await` — więc
+usługi nie da się oddać `tokio::spawn`. Musi być korzeniem `block_on`, czyli
+dokładnie tym, czym jest dziś w trybie CLI. Stąd: każde uruchomienie usługi
+dostaje **własny wątek z własnym runtime'em**, a nadzorca jest zwykłym wątkiem
+ze zwykłym kanałem. Wyszło na lepsze — wyłączona usługa nie trzyma ani
+runtime'u, ani wątków, ani capture, czyli dokładnie to, czego wymagają
+F-111.18 i F-111.19. Zapisane też w ADR-0015 §Konsekwencje.
+
+### Weryfikacja automatyczna (2026-10-21)
+
+| Kryterium | Jak sprawdzone | Wynik |
+|---|---|---|
+| AC-1 | `menubar::state::tests::f111_*` — osiem testów maszyny stanów | zaliczone |
+| AC-2 | `tests/architecture.rs` z nowym modułem | zaliczone — `menubar` nie importuje `ironrdp_*` |
+| AC-3 | **nowy** `tests/cli_mode.rs` na prawdziwej binarce: ta sama linia startowa, ten sam adres, `Ctrl-C` kończy kodem 0 | zaliczone |
+| F-111.10, F-111.11, F-111.12 | **nowy** `tests/menubar_service.rs` — pięć testów bez GUI: świeży nadzorca nie nasłuchuje, przełącznik otwiera i zamyka gniazdo, **dziesięć cykli** zostawia wolny port, zajęty port daje `Failed` z powodem, pierwszy start sam robi certyfikat | zaliczone |
+
+Zakres automatyzacji wyszedł szerszy, niż spec zakładał: AC-8 miało być
+w całości ręczne, a jego mierzalna połowa (dziesięć cykli, wolny port za
+każdym razem) jest w CI. Ręcznie zostaje to, co widać.
+
+### Weryfikacja wzrokowa wykonana przez asystenta (2026-10-21)
+
+Nie zastępuje checklisty właściciela, ale zdejmuje z niej ryzyko „nie
+uruchomiło się w ogóle". Zmierzone zrzutem ekranu i różnicą dwóch zrzutów
+(pomiar 2026-10-14 ostrzegał, że API tu kłamie: `isVisible == true` zanim
+pasek się przerysuje):
+
+- **Ikonka jest w pasku** — `bolt.horizontal.circle`, pusty okrąg
+  z poziomą strzałką, biała na ciemnym pasku, czyli `template` działa
+  (F-111.4, F-111.9). W logu nie ma ostrzeżenia o braku symbolu.
+- **W Docku nic nie przybyło** — pasek dolny porównany przed i po
+  uruchomieniu, różnica zerowa (F-111.2).
+- **Nic nie nasłuchuje przed kliknięciem** — `lsof -nP -iTCP:<port>` pusty,
+  log mówi `menu bar ready; the server is NOT listening until you start it
+  from the menu` (F-111.18).
+
+Czego asystent **nie** sprawdził, bo wymaga kliknięcia myszą: treści menu,
+przejścia ikonki na stan „nasłuchuje", rozłączenia klienta przy wyłączeniu,
+panelu Ustawień z wiersza uprawnienia i `Quit`. To jest blok G.
 
 Powstał z listy braków zgłoszonej 2026-10-12: „myślałem, że można by zrobić
 w górnym pasku jakąś ikonkę. I tam dać suwaczek czy włączyć, czy nie włączyć

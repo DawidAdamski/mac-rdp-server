@@ -156,6 +156,30 @@ mac-rdp-server --test-pattern 1280x720      # serve a synthetic image, not the s
 MAC_RDP_LOG=debug mac-rdp-server            # verbose logs
 ```
 
+### From the menu bar
+
+```sh
+mac-rdp-server --menu-bar
+```
+
+An icon appears in the menu bar and **nothing is listening yet**: starting the
+program is not starting the service. The menu shows the address it would use,
+the state of both permissions, and one item that switches the server on and
+off — no restart, and while it is off nothing captures the screen either.
+
+The icon is the state: filled while listening, hollow while not, a warning
+triangle if a start failed, with the reason in the first line of the menu. The
+process does not appear in the Dock. Quit from the menu stops the server first,
+so a connected client gets a closed connection rather than a server that
+vanished.
+
+> **ℹ️ Note**
+>
+> Permissions belong to whatever starts the server, so launching this from a
+> terminal uses that terminal's grants, exactly as the plain command does. A
+> `.app` bundle with an identity of its own is a separate step (F-106), and so
+> is starting at login (F-109).
+
 ## Connect
 
 Accept the certificate warning when the client complains it cannot verify the
@@ -232,7 +256,7 @@ INFO starting mac-rdp-server config=built-in defaults addr=127.0.0.1:3389 ...
 | Several Mac displays at once | One display per connection, chosen with `--display` — F-105 |
 | Emoji and other non-keyboard text | The server handles Unicode input; `mstsc` never sends it. A client that sends Unicode events works |
 | Resizing the client window | The desktop stays the size of the Mac's display; the client scales or scrolls |
-| A menu-bar icon, a launchd service, an `.app` bundle | F-109, F-111, F-106 — wave 5 |
+| Starting at login, a launchd service, an `.app` bundle | F-109, F-106 — wave 5. The menu-bar icon itself is in, see [From the menu bar](#from-the-menu-bar) |
 | **Surviving a display sleep** | Fixed, but **not in a release yet**: 0.1.1 — the version the tap installs — still freezes for good when the display sleeps. See [the picture freezes](#the-picture-freezes-and-reconnecting-does-not-help) |
 
 ## Troubleshooting
