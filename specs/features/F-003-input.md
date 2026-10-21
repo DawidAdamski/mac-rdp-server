@@ -8,6 +8,9 @@
 - **Uzupełnienie 2026-09-17 (Verified (2026-09-18, właściciel)):** F-003.22–F-003.26 — reset stanu wejścia
   (Synchronize, koniec połączenia). Źródło: przegląd `02-ms-rdpbcgr.md` §4 P-04.
   Wymagania F-003.1–F-003.21 bez zmian.
+- **Uzupełnienie 2026-10-21 (Draft):** F-003.27–F-003.32 — licznik kliknięć
+  (dwuklik). Źródło: zgłoszenie właściciela + pomiar `MOUSE_EVENT_CLICK_STATE`.
+  Dotyczy niezaliczonej połowy AC-3. Pozostałe wymagania bez zmian.
 
 ## 1. Cel
 
@@ -178,6 +181,69 @@ po stronie klienta.
   modyfikatorów i przycisków. Wpisy nie mogą zalewać logu przy pustym stanie
   — wtedy wystarczy `trace`.
 
+### Licznik kliknięć (dwuklik) — uzupełnienie 2026-10-21
+
+**Status tej grupy: Draft (2026-10-21)** — czeka na approve właściciela.
+Pozostałe wymagania F-003 zachowują swój status.
+
+Kontekst. AC-3 wymaga dwukliku od 2026-07-24 i został zaliczony 2026-07-27
+razem z pojedynczym klikiem — ale dwuklik **nigdy nie działał**. Zgłoszenie
+właściciela 2026-10-21: „szybki 2 klik nie działa", przy wchodzeniu do folderu
+w Finderze i w folder na stronie Dysku Google. Ta połowa AC-3 jest więc
+nieprawdziwa od początku, a nie zregresowana.
+
+**Pomiar 2026-10-21** (sonda budująca `CGEvent` bez wysyłania go, więc nic nie
+kliknęła po pulpicie):
+
+| zdarzenie | `MOUSE_EVENT_CLICK_STATE` |
+|---|---|
+| świeżo zbudowany `LeftMouseDown` | **1** |
+| świeżo zbudowany `LeftMouseUp` | **0** |
+| po `set_integer_value_field(…, 2)` | 2 |
+
+`build_button_event` (`src/input/cgevent.rs:261`) nigdy tego pola nie ustawia,
+więc **każde** wciśnięcie, jakie wstrzykujemy, niesie `clickState = 1`. AppKit
+podaje tę wartość aplikacji jako `NSEvent.clickCount`, a Finder i przeglądarki
+otwierają element przy `clickCount == 2`. Dwa szybkie kliknięcia są dla
+aplikacji dwoma niezależnymi pojedynczymi klikami i żadne przyspieszenie po
+stronie klienta tego nie zmieni. To ta sama klasa błędu co środkowy przycisk
+w F-003.7: zdarzenie wygląda poprawnie, dopóki nie sprawdzi się pola, od
+którego macOS faktycznie zależy.
+
+Liczby kliknięć **nie ma na łączu**: MS-RDPBCGR 2.2.8.1.1.3.1.1.3 (Mouse Event)
+niesie tylko `pointerFlags`, `xPos` i `yPos`, a Extended Mouse Event
+(2.2.8.1.1.3.1.1.4) dokłada wyłącznie przyciski 4/5. Serwer MUSI ją wyliczyć
+sam — nie ma czego przepisać z PDU.
+
+- **F-003.27** (MUST) Sink MUSI utrzymywać licznik kliknięć i ustawiać go
+  w polu `MOUSE_EVENT_CLICK_STATE` **zarówno** dla `…MouseDown`, jak i dla
+  `…MouseUp` — prawdziwy sprzęt niesie w obu tę samą wartość, a nasze `Up`
+  niesie dziś 0 (pomiar wyżej).
+- **F-003.28** (MUST) Licznik MUSI rosnąć o 1, gdy wciśnięcie spełnia
+  **wszystkie** warunki: ten sam przycisk co poprzednie, odstęp od poprzedniego
+  wciśnięcia nie większy niż interwał z F-003.29, a kursor nie dalej niż
+  `CLICK_SLOP` punktów od pozycji poprzedniego wciśnięcia. W każdym innym
+  przypadku MUSI wrócić do 1. Warunek odległości nie jest ozdobą: klient
+  wysyła ruch i przyciski osobno (F-003.8), więc bez niego dwa szybkie
+  kliknięcia w **różne** foldery otworzyłyby ten drugi.
+- **F-003.29** (MUST) Interwał dwukliku MUSI pochodzić z ustawień systemu
+  (`NSEvent.doubleClickInterval`), nie być stałą w kodzie. Czytany raz przy
+  tworzeniu sinka. **Pomiar 2026-10-21:** metoda działa w procesie **bez**
+  `NSApplication` (czyli w trybie CLI), jest w `objc2-app-kit` 0.3.2 **bezpieczna**
+  (nie wymaga `unsafe`, więc nie rusza `unsafe_code = "deny"`), i u właściciela
+  zwraca `0.5 s`; klucze `defaults` (`com.apple.mouse.doubleClickThreshold`)
+  u niego nie istnieją, więc czytanie preferencji ręcznie dałoby nic.
+- **F-003.30** (MUST) Licznik NIE MOŻE być obcięty do 2 — potrójne kliknięcie
+  (zaznaczenie akapitu) MUSI dawać 3, tak jak prawdziwa mysz.
+- **F-003.31** (MUST) Reset stanu wejścia (F-003.22 … F-003.26: Synchronize
+  i koniec połączenia) MUSI zerować licznik, żeby pierwszy klik nowej sesji
+  nie dokleił się jako dwuklik do poprzedniej.
+- **F-003.32** (MUST) Decyzja o wartości licznika MUSI być **czystą funkcją**
+  w `src/input/state.rs`, z czasem podanym jako argument i pokrytą testami
+  jednostkowymi (dwuklik w interwale, za późno, za daleko, inny przycisk,
+  potrójny, po resecie). `cgevent.rs` tylko ustawia pole — tak jak mówi
+  nagłówek tego modułu o podziale „co wstrzyknąć" / „jak wstrzyknąć".
+
 ## 4. Odniesienia do dokumentacji
 
 | Wymaganie | Źródło |
@@ -190,6 +256,7 @@ po stronie klienta.
 | F-003.22, F-003.23 | MS-RDPBCGR 2.2.8.1.1.3.1.1.5 Synchronize Event (str. 173–174); 2.2.8.1.2.2.5 Fast-Path Synchronize Event (str. 181); `specs/ref/MS-RDPBCGR-v20260309.txt` |
 | F-003.24 | `ironrdp-server-0.13.0/src/server.rs:70-91` (`ConnectionHandler`); `specs/02-ms-rdpbcgr.md` §4 P-04 |
 | F-003.25 | `src/input/state.rs` (`Modifiers`, stan przycisków); ADR-0003 §3 |
+| F-003.27–F-003.32 | MS-RDPBCGR 2.2.8.1.1.3.1.1.3 Mouse Event (brak liczby kliknięć na łączu) i 2.2.8.1.1.3.1.1.4 Extended Mouse Event; Apple: `kCGMouseEventClickState`, `NSEvent.clickCount`, `NSEvent.doubleClickInterval` |
 
 ## 5. Kryteria akceptacji
 
@@ -257,6 +324,20 @@ Testy jednostkowe (część CI, AC-11) i checklista ręczna (AC-12…AC-15):
     FreeRDP/Windows App — oba idą ścieżką `MousePdu`, ale wysyłają różne
     kombinacje flag.
 
+**Uzupełnienie 2026-10-21 — licznik kliknięć (F-003.27 … F-003.32).**
+
+17. **AC-17** **Dwuklik działa.** W Finderze dwuklik na folderze wchodzi do
+    niego; na stronie Dysku Google dwuklik na folderze otwiera go. Trzy razy
+    pod rząd, bo chodzi o powtarzalność, nie o jedno trafienie.
+18. **AC-18** **Dwuklik nie powstaje przypadkiem.** Dwa szybkie kliknięcia
+    w **różne** foldery (odstęp mniejszy niż interwał systemowy, kursor
+    przeniesiony między nimi) nie otwierają żadnego z nich — dowód na warunek
+    odległości z F-003.28.
+19. **AC-19** **Potrójny klik** w polu tekstowym zaznacza akapit (F-003.30).
+20. **AC-20** **Klik pojedynczy się nie zepsuł.** Zaznaczanie ikon jednym
+    klikiem, menu kontekstowe prawym i przeciąganie (AC-4) działają jak
+    dotąd — licznik nie ma prawa zmienić zachowania pojedynczego kliknięcia.
+
 ## 6. Poza zakresem
 
 - **Pełne mapowanie układów klawiatury** (PL, DE, dead keys, IME) — F-003a.
@@ -283,9 +364,21 @@ Testy jednostkowe (część CI, AC-11) i checklista ręczna (AC-12…AC-15):
    empirycznie, które źródło daje poprawne zachowanie modyfikatorów; decyzja
    do zapisania w ADR-0003, jeśli okaże się nieoczywista.
 
+5. **`CLICK_SLOP` — wartość do ustalenia.** macOS ma własny próg odległości
+   dla dwukliku i nie jest on publicznie udokumentowany. Propozycja: **4 punkty**
+   (ciasno, bo klient RDP wysyła pozycję bezwzględną, a nie drżącą rękę na
+   myszy), jako stała nazwana w `state.rs`, do skorygowania po AC-17/AC-18,
+   jeśli dwuklik będzie „gubiony" przy minimalnym ruchu kursora.
+
 ## 8. Status
 
 **Verified** (2026-07-27).
+
+**Sprostowanie 2026-10-21 do AC-3.** „Lewy i prawy przycisk — działa"
+zaliczone 2026-07-27 obejmowało pojedynczy klik i menu kontekstowe; **dwuklik,
+wymieniony w AC-3 od początku, nie działał i nie działa** (zgłoszenie
+właściciela 2026-10-21, przyczyna zmierzona — patrz §3, uzupełnienie
+2026-10-21). AC-3 pozostaje w tej połowie niezaliczone do czasu AC-17.
 
 Zweryfikowane ręcznie prawdziwym klientem (Windows App) przez właściciela:
 - **AC-2** ruch myszy i pozycja — działa (klik trafia we właściwe miejsce;
