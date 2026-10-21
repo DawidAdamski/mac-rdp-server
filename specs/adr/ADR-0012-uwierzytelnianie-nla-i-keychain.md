@@ -1,6 +1,6 @@
 # ADR-0012 — Uwierzytelnianie: NLA/CredSSP, a hasło w Keychainie
 
-- **Status:** Proposed (2026-10-21)
+- **Status:** Accepted (2026-10-21)
 - **Dotyczy:** F-101 (uwierzytelnianie), F-108 (hardening), F-106 (bundel `.app`)
 - **Zastępuje:** nic. Pierwszy ADR o uwierzytelnianiu.
 

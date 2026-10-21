@@ -1,7 +1,7 @@
 # F-101 — Uwierzytelnianie: hasło przed pulpitem
 
 - **Fala:** 4
-- **Status:** Draft (2026-10-21)
+- **Status:** Approved (2026-10-21)
 - **Data:** 2026-10-21
 - **ADR:** ADR-0012 (NLA/CredSSP i hasło w Keychainie), ADR-0004 (TLS i certyfikat),
   ADR-0014 (silnik z forka)
@@ -185,8 +185,12 @@ Granica architektoniczna z CLAUDE.md zostaje: API silnika (`with_hybrid`,
 
 ## 8. Status
 
-**Draft (2026-10-21).** Czeka na approve właściciela.
+**Approved (2026-10-21).** Zaapprowane przez właściciela 2026-10-21.
 
-Przed kodem wymagany jest pomiar z §7 pkt 1 (okienko Keychaina po
-przebudowaniu binarki) — jego wynik może zmienić projekt, więc approve speca
-nie oznacza jeszcze zgody na implementację w tej formie.
+Approve dotyczy **wymagań**, nie zgody na natychmiastowy kod. Przed
+implementacją wymagany jest pomiar z §7 pkt 1 (czy Keychain pyta o pozwolenie
+po przebudowaniu binarki). Jego wynik może zmienić projekt: jeżeli AC-8 nie da
+się spełnić przy podpisie ad-hoc, wybór jest między elementem dostępnym dla
+wszystkich aplikacji (decyzja właściciela) a prawdziwą tożsamością podpisu,
+czyli F-106 **przed** F-101. Dopiero po pomiarze wiadomo, które wymagania
+zostają w tej formie.
