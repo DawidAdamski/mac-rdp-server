@@ -46,16 +46,31 @@ the manifest, or one that has no section in this file.
 
 ### Added
 
+- Settings can be given once instead of at every start: the server reads
+  `~/.config/mac-rdp-server.toml` without being pointed at it. Precedence is
+  command line, then the file named by `--config`, then that default file, then
+  the defaults. `--config` *replaces* the default file rather than adding to
+  it, so one file is read or the other, never both (F-112.1, F-112.2).
+- The startup log line now says where the configuration came from — the path of
+  the file that was read, or `built-in defaults` — so "where did that value
+  come from" is answered by reading the log rather than by experiment
+  (F-112.7).
+- `--no-config` ignores the default file, which is the way past one that stops
+  the server from starting without having to delete it. A default file that
+  exists but cannot be read or parsed is an error with the path in the message;
+  a missing one is normal and silent (F-112.4, F-112.5, F-112.6).
 - `capture stats` reports `silent_for_ms`, the time since ScreenCaptureKit last
   called us at all, so a frozen stream is readable from a single log line
   instead of by diffing two lines ten seconds apart (F-007.31).
 
 ### Changed
 
-- The Homebrew caveat no longer shows an example configuration being copied to
-  `~/.config/mac-rdp-server.toml` and stop there, as if that path were read.
-  It is not: the file is read only when `--config` points at it, so the
-  caveat now shows that command too.
+- The Homebrew caveat used to show an example configuration being copied to
+  `~/.config/mac-rdp-server.toml` and stop there, as if that path were read. It
+  was not, and the caveat was first corrected to show the `--config` command as
+  well. With that path now read on its own, the copy is genuinely all it takes
+  and the caveat says so, along with where the startup log reports the file it
+  used (F-112.8).
 - The README and the documentation page now carry the display-sleep freeze as a
   known bug, with the two commands that work around it, instead of leaving it
   for whoever hits it to rediscover (F-007 §8c, ADR-0016).

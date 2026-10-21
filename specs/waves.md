@@ -378,8 +378,13 @@ Właściciel zaakceptował naraz pięć dokumentów i rekomendowaną kolejność
    **Zrobione 2026-10-19**, zmierzone dwoma przebiegami sondy; zostaje ręczny
    test C-1 z podłączonym klientem.
 2. **ADR-0015** — pasek menu w Ruście, jeden proces.
-3. **F-112** — domyślny plik konfiguracyjny.
-4. **F-111** — ikonka w pasku.
+3. **F-112** — domyślny plik konfiguracyjny. **Zrobione 2026-10-21**, AC-1 …
+   AC-7 zaliczone (weryfikacja w F-112 §6). Między 1. a 3. weszły jeszcze
+   iteracje 1e i 1f F-007, bo dzień pracy właściciela ujawnił dwie dalsze
+   przyczyny zamarzania (F-007 §8e, §8g) — kolejność się nie zmieniła, doszła
+   praca przed nią.
+4. **F-111** — ikonka w pasku. Następne zadanie; nic go już nie blokuje poza
+   statusem ADR-0015 (Proposed), który F-111.16 wymaga rozstrzygnąć.
 
 ### Pomiar 2026-10-19 — dlaczego RDP zamarza po dłuższej bezczynności
 
@@ -509,8 +514,8 @@ Fala, po której instalacja nie wymaga toolchaina Rusta w głowie użytkownika.
 | F-106 | Bundle `.app`, `Info.plist`, własna tożsamość TCC, podpis |
 | F-109 | Usługa launchd (LaunchAgent) + podkomendy CLI: `install`, `uninstall`, `status` |
 | F-110 | Dystrybucja i dokumentacja: README, licencje, `SECURITY.md`, tap Homebrew, GitHub Pages, donacje — **Implemented 2026-10-12** (`F-110-dystrybucja.md`) |
-| F-111 | Ikonka w pasku menu z włącznikiem serwera — **Draft 2026-10-16** (`F-111-ikonka-w-pasku.md`), opiera się na **ADR-0015** (Proposed) |
-| F-112 | Domyślny plik konfiguracyjny `~/.config/mac-rdp-server.toml` — **Draft 2026-10-16** (`F-112-domyslna-konfiguracja.md`), warunek wstępny dla F-111 |
+| F-111 | Ikonka w pasku menu z włącznikiem serwera — **Approved 2026-10-19** (`F-111-ikonka-w-pasku.md`), opiera się na **ADR-0015** (Proposed); F-112 odblokowane, więc to jest następne zadanie |
+| F-112 | Domyślny plik konfiguracyjny `~/.config/mac-rdp-server.toml` — **Implemented 2026-10-21** (`F-112-domyslna-konfiguracja.md`), warunek wstępny dla F-111; AC-1 … AC-7 zaliczone binarką, weryfikacja w §6 specu |
 
 **Dwa fakty o macOS, które kształtują tę falę:**
 

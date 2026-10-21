@@ -112,8 +112,66 @@ mieć odpowiadające im testy automatyczne; AC-6 i AC-7 są do przeczytania.
 
 ## 6. Status
 
-**Approved** (2026-10-19). Draft 2026-10-16, approve właściciela 2026-10-19.
-Kolejność: po naprawie zamarzania (F-007 iteracja 1d + ADR-0016), przed F-111.
+**Implemented (2026-10-21)**. Draft 2026-10-16, approve właściciela
+2026-10-19, kod 2026-10-21. Kolejność: po naprawie zamarzania (F-007
+iteracja 1d + ADR-0016), przed F-111.
+
+Implementacja:
+- `src/config.rs` — stała `DEFAULT_CONFIG_FILE = ".config/mac-rdp-server.toml"`
+  (F-112.1, jedna ścieżka, bez listy przeszukiwania); `ConfigSource`
+  (`Requested` / `Default` / `Builtin`) jako osobny typ obok `Config`, żeby
+  „na czym serwer stoi" i „skąd to wziął" nie mieszały się w jednej
+  strukturze; `ConfigSource::decide` rozstrzyga źródło przed czytaniem
+  czegokolwiek (F-112.2, F-112.3, F-112.6); `--no-config` z `conflicts_with =
+  "config"` (F-112.6 — dwie flagi odpowiadają na to samo pytanie, więc podanie
+  obu jest błędem użycia, nie cichą regułą precedencji); `Config::from_cli`
+  zwraca `(Config, ConfigSource)`, a `from_cli_in` przyjmuje katalog domowy
+  argumentem, co czyni **całą** drogę — nie tylko wybór ścieżki — testowalną
+  bez prawdziwego `$HOME` (F-112.9).
+- `src/main.rs` — `config = %config_source` w linii startowej (F-112.7).
+
+**Decyzja przy implementacji, nieprzewidziana w specu:** plik domyślny jest
+czytany także wtedy, gdy `try_exists()` **nie umie odpowiedzieć** (np. brak
+prawa wykonania na katalogu w ścieżce). `Path::exists()` zwróciłoby wtedy
+`false`, czyli plik napisany przez użytkownika zostałby po cichu pominięty —
+dokładnie to, czemu zapobiega F-112.5. Jedyny cichy przypadek to potwierdzone
+„pliku nie ma".
+
+Testy jednostkowe `config::tests::f112_*` — osiem, po jednym na każdą
+kombinację z F-112.2 plus brak `HOME`, zepsuty plik domyślny, `--no-config`
+na tym samym zepsutym pliku i odrzucenie `--no-config --config` razem.
+Suite: 174 → 182.
+
+### Weryfikacja (2026-10-21)
+
+Kryteria sprawdzone **zbudowaną binarką**, nie lekturą kodu — pomiar
+z 2026-10-15 wyszedł odwrotnie niż kod sugerował, więc ta kolejność jest tu
+zasadą. `HOME` wskazany na katalog tymczasowy; `cert_path` w pliku ustawiony
+na nieistniejącą ścieżkę, żeby przebieg kończył się zaraz po linii startowej
+i żeby **żaden port się nie otworzył** (interesuje nas log, nie nasłuch).
+
+| Kryterium | Uruchomienie | Wynik |
+|---|---|---|
+| AC-1 | bez żadnych flag, plik z `0.0.0.0` i `33891` | `config=<ścieżka> addr=0.0.0.0:33891` |
+| AC-2 | `--bind-addr 127.0.0.1` | `addr=127.0.0.1:33891` — flaga bierze adres, port zostaje z pliku |
+| AC-3 | `--config <inny plik>` (tylko `port = 4242`) | `addr=127.0.0.1:4242` — `bind_addr` domyślny, czyli plik domyślny nie został przeczytany |
+| AC-4 | pusty katalog domowy | `config=built-in defaults addr=127.0.0.1:3389`, zero ostrzeżeń |
+| AC-5 | plik domyślny z `bind_addr = "nie-adres"` | `Error: parsing config file '<ścieżka>'` + `invalid IP address syntax`, **kod wyjścia 1** |
+| AC-6 | wszystkie powyższe | linia startowa zawiera albo ścieżkę, albo `built-in defaults` |
+| F-112.6 | ten sam zepsuty plik + `--no-config` | serwer przechodzi dalej na wartościach domyślnych |
+
+AC-7 (dokumentacja) — poprawione i przeczytane po implementacji, nie
+z pamięci: README §Configuration (precedencja, `--config` **zamiast** pliku
+domyślnego, cisza przy braku, błąd przy literówce, `--no-config`, dwie
+przykładowe linie loga), `caveats` formuły (zniknęła linia
+`--config ~/.config/...`, bo właśnie przestała być obowiązkowa) i nagłówek
+`packaging/mac-rdp-server.toml`. `docs/` przegenerowane, `build-docs.py
+--check` zielone.
+
+**Zastrzeżenie:** README opisuje stan źródła, a tap serwuje 0.1.1, która tej
+ścieżki nie czyta. Żeby README nie zastawiło na 0.1.1 tej samej pułapki, co
+`caveats` do 2026-10-15, sekcja §Configuration ma `[!NOTE]` o tym, że samo
+czytanie pliku domyślnego nie jest jeszcze w żadnym wydaniu.
 
 Powstał z uwagi właściciela po pierwszej instalacji z Homebrew: „musiałem
 dorzucić `--bind-addr 0.0.0.0`". Samo zachowanie było poprawne (domyślny
