@@ -81,6 +81,9 @@ fn non_black_fraction(codecs: BitmapCodecs) -> f64 {
                         clients: tokio::sync::watch::channel(0).0,
                         // These tests wait on the socket itself, so the
                         // readiness callback has nothing to tell them.
+                        // F-101.4: these tests drive the protocol on loopback, which is
+                        // exactly the case that must keep working without a secret (AC-6).
+                        auth: mac_rdp_server::auth::Mode::None,
                         ready: Box::new(|| {}),
                     })
                     .await;
@@ -167,6 +170,9 @@ fn reconnect_fractions(rounds: usize) -> Vec<f64> {
                         clients: tokio::sync::watch::channel(0).0,
                         // These tests wait on the socket itself, so the
                         // readiness callback has nothing to tell them.
+                        // F-101.4: these tests drive the protocol on loopback, which is
+                        // exactly the case that must keep working without a secret (AC-6).
+                        auth: mac_rdp_server::auth::Mode::None,
                         ready: Box::new(|| {}),
                     })
                     .await;
@@ -242,6 +248,9 @@ fn observe_damage() -> DamageObservation {
                         clients: tokio::sync::watch::channel(0).0,
                         // These tests wait on the socket itself, so the
                         // readiness callback has nothing to tell them.
+                        // F-101.4: these tests drive the protocol on loopback, which is
+                        // exactly the case that must keep working without a secret (AC-6).
+                        auth: mac_rdp_server::auth::Mode::None,
                         ready: Box::new(|| {}),
                     })
                     .await;

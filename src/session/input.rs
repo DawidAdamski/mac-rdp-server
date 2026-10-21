@@ -1,12 +1,14 @@
 //! Adapts client input to our [`InputDispatcher`].
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use ironrdp_server::{ConnectionHandler, KeyboardEvent, MouseEvent, PostConnectionAction, RdpServerInputHandler};
 use tokio::sync::watch;
 use tracing::{debug, trace};
 
+use super::audit::AuthAudit;
 use super::convert;
 use crate::input::{InputDispatcher, InputEvent};
 
@@ -91,17 +93,26 @@ pub struct SessionResetHandler {
     /// something on the other end keeps the Mac's display awake, any more than
     /// it knows about ScreenCaptureKit (`CLAUDE.md` §Granice).
     clients: watch::Sender<usize>,
+    /// The authentication audit trail (F-101.13, F-101.14). These two hooks are
+    /// the only places the engine reports a peer address and a connection
+    /// failure, so the audit has to be fed from here.
+    audit: Arc<AuthAudit>,
 }
 
 impl SessionResetHandler {
     #[must_use]
-    pub fn new(dispatcher: InputDispatcher, clients: watch::Sender<usize>) -> Self {
-        Self { dispatcher, clients }
+    pub fn new(dispatcher: InputDispatcher, clients: watch::Sender<usize>, audit: Arc<AuthAudit>) -> Self {
+        Self {
+            dispatcher,
+            clients,
+            audit,
+        }
     }
 }
 
 impl ConnectionHandler for SessionResetHandler {
-    fn on_accept(&mut self, _peer: SocketAddr) -> bool {
+    fn on_accept(&mut self, peer: SocketAddr) -> bool {
+        self.audit.connection_opened(peer);
         self.dispatcher.send(InputEvent::SessionReset);
         self.clients.send_modify(|connected| *connected += 1);
         true
@@ -114,6 +125,9 @@ impl ConnectionHandler for SessionResetHandler {
         error: Option<&anyhow::Error>,
     ) -> PostConnectionAction {
         debug!(%peer, ?duration, failed = error.is_some(), "connection ended; resetting input state");
+        // Before the reset: a rejected password is the thing worth logging
+        // about this connection, and the reset is housekeeping (F-101.14).
+        self.audit.connection_closed(peer, error);
         self.dispatcher.send(InputEvent::SessionReset);
         // Saturating, so an unbalanced disconnect cannot wrap the count around
         // to a huge number and pin the display awake for ever.
@@ -136,6 +150,13 @@ mod tests {
     /// A client counter whose value nobody reads.
     fn counter() -> watch::Sender<usize> {
         watch::channel(0).0
+    }
+
+    /// An audit trail for a server with no authentication configured: these
+    /// tests are about the input reset, and an unauthenticated audit logs
+    /// nothing (F-101.13).
+    fn no_audit() -> Arc<AuthAudit> {
+        Arc::new(AuthAudit::new(None))
     }
 
     /// F-003a.19: every received key is described with kind, code and
@@ -179,7 +200,7 @@ mod tests {
     #[test]
     fn f003_24_connection_lifecycle_sends_session_resets() {
         let (tx, mut rx) = mpsc::channel(4);
-        let mut handler = SessionResetHandler::new(InputDispatcher::new(tx), counter());
+        let mut handler = SessionResetHandler::new(InputDispatcher::new(tx), counter(), no_audit());
 
         assert!(handler.on_accept(peer()));
         let error = anyhow::anyhow!("connection reset by peer");
@@ -197,7 +218,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel(8);
         let clients = watch::channel(0).0;
         let seen = clients.subscribe();
-        let mut handler = SessionResetHandler::new(InputDispatcher::new(tx), clients);
+        let mut handler = SessionResetHandler::new(InputDispatcher::new(tx), clients, no_audit());
 
         assert_eq!(*seen.borrow(), 0, "nothing is connected before the first accept");
 
@@ -224,7 +245,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel(8);
         let clients = watch::channel(0).0;
         let seen = clients.subscribe();
-        let mut handler = SessionResetHandler::new(InputDispatcher::new(tx), clients);
+        let mut handler = SessionResetHandler::new(InputDispatcher::new(tx), clients, no_audit());
 
         handler.on_disconnected(peer(), Duration::ZERO, None);
         assert_eq!(*seen.borrow(), 0);
@@ -236,7 +257,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel(1);
         let mut dispatcher = InputDispatcher::new(tx);
         dispatcher.send(InputEvent::SessionReset);
-        let mut handler = SessionResetHandler::new(dispatcher, counter());
+        let mut handler = SessionResetHandler::new(dispatcher, counter(), no_audit());
 
         let action = handler.on_disconnected(peer(), Duration::ZERO, None);
         assert_eq!(action, PostConnectionAction::Continue);

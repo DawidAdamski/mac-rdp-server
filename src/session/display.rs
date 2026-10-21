@@ -9,6 +9,7 @@ use anyhow::Result;
 use ironrdp_server::{DesktopSize, DisplayUpdate, RdpServerDisplay, RdpServerDisplayUpdates};
 use tracing::{debug, info};
 
+use super::audit::AuthAudit;
 use super::convert;
 use super::suppress::{SuppressState, SuppressTracker, Transition};
 use crate::capture::Frame;
@@ -28,6 +29,14 @@ pub struct MacRdpDisplay {
     make_encoder: EncoderFactory,
     /// The client's "suppress output" flag, written by IronRDP (F-008.3).
     suppressed: Arc<AtomicBool>,
+    /// The authentication audit trail (F-101.13).
+    ///
+    /// A display handler holding an audit object looks out of place, and it is
+    /// here for one reason: [`Self::updates`] is the first thing the engine
+    /// asks of us that it cannot reach until CredSSP has succeeded. See
+    /// `audit.rs` for the two hooks that were available and why neither is the
+    /// moment an authentication is accepted.
+    audit: Arc<AuthAudit>,
 }
 
 impl MacRdpDisplay {
@@ -39,12 +48,14 @@ impl MacRdpDisplay {
         height: u16,
         make_encoder: EncoderFactory,
         suppressed: Arc<AtomicBool>,
+        audit: Arc<AuthAudit>,
     ) -> Self {
         Self {
             stream,
             size: DesktopSize { width, height },
             make_encoder,
             suppressed,
+            audit,
         }
     }
 }
@@ -56,6 +67,13 @@ impl RdpServerDisplay for MacRdpDisplay {
     }
 
     async fn updates(&mut self) -> Result<Box<dyn RdpServerDisplayUpdates>> {
+        // F-101.13. The engine calls this from inside the running connection,
+        // which with NLA is past CredSSP — so reaching this line *is* the
+        // accepted authentication. `size()` would be the wrong place: the
+        // engine asks for it while still building the acceptor, before any
+        // password has been seen.
+        self.audit.session_started();
+
         // Each connection gets its own stream clone, so it receives the current
         // frame immediately instead of waiting for the next one.
         Ok(Box::new(MacRdpDisplayUpdates {

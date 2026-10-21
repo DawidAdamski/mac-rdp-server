@@ -15,7 +15,7 @@ use tracing::{error, info, warn};
 
 use mac_rdp_server::config::{Cli, Config};
 use mac_rdp_server::perms;
-use mac_rdp_server::{menubar, service};
+use mac_rdp_server::{auth, menubar, service};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -35,6 +35,20 @@ fn main() -> Result<()> {
     let (config, config_source) = Config::from_cli(&cli)?;
     init_logging(&config.log_level)?;
 
+    // F-101.8: a mode, not an option. It stores a password and exits; it never
+    // starts a server, and it runs before anything that could prompt for a
+    // permission or open the screen, because none of that is needed to write
+    // one Keychain item.
+    if cli.set_password {
+        let Some(username) = config.auth_user.as_deref() else {
+            anyhow::bail!(
+                "--set-password needs to know whose password it is: pass --auth-user NAME, \
+                 or put `auth_user` in the configuration file"
+            );
+        };
+        return auth::set_password_interactively(username);
+    }
+
     info!(
         version = env!("CARGO_PKG_VERSION"),
         // F-112.7: the values below are the result; this is where they came
@@ -45,6 +59,12 @@ fn main() -> Result<()> {
         display = config.display,
         max_fps = config.max_fps,
         menu_bar = cli.menu_bar,
+        // F-101.16: whether a password is required, and whose. Reported from
+        // the configured user name rather than from a Keychain read, which is
+        // the same answer: a configured user without a secret does not get
+        // past `service::run` (F-101.11).
+        auth = %if config.auth_user.is_some() { "nla" } else { "none" },
+        user = %config.auth_user.as_deref().unwrap_or("-"),
         "starting mac-rdp-server"
     );
 

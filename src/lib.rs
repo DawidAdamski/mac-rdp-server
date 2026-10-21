@@ -5,6 +5,7 @@
 //! [`session`] may reference `ironrdp-server`; every other module speaks this
 //! crate's own types (enforced by `tests/architecture.rs`).
 
+pub mod auth;
 pub mod capture;
 pub mod config;
 pub mod encoder;

@@ -123,6 +123,9 @@ fn pointer_events_from_the_wire() -> Vec<PointerEvent> {
                         clients: tokio::sync::watch::channel(0).0,
                         // These tests wait on the socket itself, so the
                         // readiness callback has nothing to tell them.
+                        // F-101.4: these tests drive the protocol on loopback, which is
+                        // exactly the case that must keep working without a secret (AC-6).
+                        auth: mac_rdp_server::auth::Mode::None,
                         ready: Box::new(|| {}),
                     })
                     .await;

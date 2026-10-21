@@ -112,6 +112,25 @@ pub struct Cli {
     /// missing, so a script can gate on it. Checks only: it never prompts.
     #[arg(long)]
     pub check_permissions: bool,
+
+    /// RDP user name to require a password for (F-101.7).
+    ///
+    /// Not a macOS account and not a secret, so it may also live in the
+    /// configuration file. Giving no user name means no authentication, which
+    /// in turn restricts the server to loopback (F-101.10).
+    #[arg(long, value_name = "NAME")]
+    pub auth_user: Option<String>,
+
+    /// Read a password from the terminal without echoing it, store it in the
+    /// Keychain for --auth-user, and exit without starting the server
+    /// (F-101.8).
+    ///
+    /// There is deliberately no flag that takes the password itself: an
+    /// argument would land in the shell history and in `ps` for every user of
+    /// the machine (F-101.6). When standard input is not a terminal the
+    /// password is read as one line from it, so this can be scripted.
+    #[arg(long)]
+    pub set_password: bool,
 }
 
 /// The same keys as [`Cli`], as they appear in the TOML file.
@@ -126,6 +145,11 @@ pub struct FileConfig {
     pub max_fps: Option<u32>,
     pub log_level: Option<String>,
     pub encoder: Option<EncoderKind>,
+    /// F-101.7. There is no `password` key and there never will be: the secret
+    /// lives in the Keychain, and `deny_unknown_fields` above turns an attempt
+    /// to put one here into an error rather than a file that looks like it
+    /// works (F-101.6).
+    pub auth_user: Option<String>,
 }
 
 impl FileConfig {
@@ -215,6 +239,12 @@ pub struct Config {
     /// `Some((width, height))` when the synthetic pattern was requested.
     pub test_pattern: Option<(u32, u32)>,
     pub encoder: EncoderKind,
+    /// The RDP user name, when authentication is configured (F-101.7).
+    ///
+    /// The password is **not** here. It is read from the Keychain at start-up
+    /// by `auth::resolve`, so that no part of the resolved configuration ever
+    /// holds a secret that could be logged with the rest of it.
+    pub auth_user: Option<String>,
 }
 
 impl Config {
@@ -247,6 +277,7 @@ impl Config {
                 .unwrap_or_else(|| DEFAULT_LOG_LEVEL.to_owned()),
             test_pattern: cli.test_pattern.as_deref().map(parse_size).transpose()?,
             encoder: cli.encoder.or(file.encoder).unwrap_or_default(),
+            auth_user: cli.auth_user.clone().or_else(|| file.auth_user.clone()),
         })
     }
 
@@ -352,9 +383,11 @@ mod tests {
             menu_bar: false,
             test_pattern: None,
             encoder: Some(EncoderKind::Full),
-            // Not a configuration key: `--check-permissions` is a mode that
-            // exits before any config is resolved (F-110.15).
+            auth_user: Some("from-cli".to_owned()),
+            // Not configuration keys: these are modes that exit instead of
+            // starting a server (F-110.15, F-101.8).
             check_permissions: false,
+            set_password: false,
         };
         let file = FileConfig {
             bind_addr: Some("10.0.0.1".parse().expect("valid IP")),
@@ -365,6 +398,7 @@ mod tests {
             max_fps: Some(7),
             log_level: Some("error".to_owned()),
             encoder: Some(EncoderKind::Damage),
+            auth_user: Some("from-file".to_owned()),
         };
 
         let cfg = Config::resolve(&cli, &file).expect("resolve");
@@ -376,6 +410,67 @@ mod tests {
         assert_eq!(cfg.max_fps, 3);
         assert_eq!(cfg.log_level, "trace");
         assert_eq!(cfg.encoder, EncoderKind::Full);
+        assert_eq!(cfg.auth_user.as_deref(), Some("from-cli"));
+    }
+
+    /// F-101.7: the user name is not a secret, so the file may carry it and
+    /// precedence works like every other key.
+    #[test]
+    fn f101_7_the_auth_user_can_come_from_the_file() {
+        let file = FileConfig {
+            auth_user: Some("rdp".to_owned()),
+            ..FileConfig::default()
+        };
+        let cfg = Config::resolve(&Cli::default(), &file).expect("resolve");
+        assert_eq!(cfg.auth_user.as_deref(), Some("rdp"));
+    }
+
+    /// F-101.7: and no user name is the ordinary state, meaning "no
+    /// authentication" rather than a missing value to complain about.
+    #[test]
+    fn f101_7_no_auth_user_is_not_an_error() {
+        let cfg = Config::resolve(&Cli::default(), &FileConfig::default()).expect("resolve");
+        assert_eq!(cfg.auth_user, None);
+    }
+
+    /// F-101.6: the secret must not be configurable. `deny_unknown_fields` is
+    /// what enforces it, so this test is here to make the guarantee explicit —
+    /// a future key added by accident would break it loudly.
+    #[test]
+    fn f101_6_a_password_in_the_config_file_is_rejected() {
+        for body in [
+            "password = \"hunter2\"\n",
+            "auth_password = \"hunter2\"\n",
+            "auth_user = \"rdp\"\npassword = \"hunter2\"\n",
+        ] {
+            let result = toml::from_str::<FileConfig>(body);
+            assert!(
+                result.is_err(),
+                "a password must never be accepted from the configuration file: {body}"
+            );
+        }
+    }
+
+    /// F-101.6, the other half: there is no flag that takes a password either.
+    #[test]
+    fn f101_6_there_is_no_flag_that_takes_a_password() {
+        for args in [
+            ["mac-rdp-server", "--password", "hunter2"],
+            ["mac-rdp-server", "--auth-password", "hunter2"],
+        ] {
+            assert!(
+                Cli::try_parse_from(args).is_err(),
+                "a password must never be a process argument: {args:?}"
+            );
+        }
+    }
+
+    /// F-101.8: the mode exists and takes no value of its own.
+    #[test]
+    fn f101_8_set_password_is_a_flag_not_a_value() {
+        let cli = Cli::try_parse_from(["mac-rdp-server", "--auth-user", "rdp", "--set-password"]).expect("parse");
+        assert!(cli.set_password);
+        assert_eq!(cli.auth_user.as_deref(), Some("rdp"));
     }
 
     #[test]

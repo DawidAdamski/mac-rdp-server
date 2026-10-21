@@ -44,6 +44,9 @@ fn test_config(tag: &str, port: u16) -> Config {
         // socket and the switch.
         test_pattern: Some((64, 64)),
         encoder: EncoderKind::Damage,
+        // F-101.4, AC-6: loopback with no user name configured must still
+        // start, which is what this test depends on.
+        auth_user: None,
     }
 }
 

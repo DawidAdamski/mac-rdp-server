@@ -5,6 +5,7 @@
 //! own MS-RDPBCGR implementation — a module swap rather than a rewrite.
 //! Enforced by `tests/architecture.rs` (F-001.12).
 
+mod audit;
 mod convert;
 mod display;
 mod input;
@@ -17,13 +18,15 @@ use std::sync::atomic::AtomicBool;
 
 use anyhow::{Context as _, Result};
 use ironrdp_pdu::rdp::capability_sets::BitmapCodecs;
-use ironrdp_server::{RdpServer, ServerEvent, TlsIdentityCtx};
+use ironrdp_server::{Credentials, RdpServer, ServerEvent, TlsIdentityCtx};
 use tokio::sync::{oneshot, watch};
 use tracing::info;
 
+pub use audit::AuthAudit;
 pub use display::MacRdpDisplay;
 pub use input::{MacRdpInput, SessionResetHandler};
 
+use crate::auth;
 use crate::capture::FrameStream;
 use crate::config::EncoderKind;
 use crate::encoder::Encoder;
@@ -43,6 +46,9 @@ pub struct SessionParams<'a> {
     /// Published client count (F-007.26). `session` only counts; the decision
     /// about what to do with the number is made outside this boundary.
     pub clients: watch::Sender<usize>,
+    /// Whether to require a password before the desktop, and which one
+    /// (F-101.1). `Mode::None` keeps the behaviour the server has always had.
+    pub auth: auth::Mode,
     /// Called once the engine is **actually accepting connections** (F-111.11).
     ///
     /// Not a convenience: the menu bar paints "listening" from this, and a
@@ -73,6 +79,7 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
         dispatcher,
         encoder,
         clients,
+        auth,
         ready,
     } = params;
 
@@ -91,21 +98,38 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
     // F-008.3: one flag, written by IronRDP on Suppress Output / Refresh Rect
     // and read by our display loop. It does not leave `session`.
     let suppressed = Arc::new(AtomicBool::new(false));
+    // F-101.13, F-101.14: one object, two holders. The connection handler
+    // knows the peer and the failure; the display handler knows the session
+    // actually started, which past CredSSP is the same thing as an accepted
+    // authentication. See `audit.rs` for why those are the two available
+    // moments.
+    let audit = Arc::new(AuthAudit::new(auth.username().map(str::to_owned)));
     let display = MacRdpDisplay::new(
         stream,
         desktop_width,
         desktop_height,
         make_encoder,
         Arc::clone(&suppressed),
+        Arc::clone(&audit),
     );
     // F-003.24: connection ends reset the input state through the same queue.
-    let resets = SessionResetHandler::new(dispatcher.clone(), clients);
+    let resets = SessionResetHandler::new(dispatcher.clone(), clients, Arc::clone(&audit));
     let handler = MacRdpInput::new(dispatcher);
 
-    // TLS only, no NLA: `with_hybrid` is F-101 (ADR-0004).
-    let mut server = RdpServer::builder()
-        .with_addr(bind_addr)
-        .with_tls(acceptor)
+    // F-101.1: NLA when a password is configured, and otherwise exactly what
+    // the server has always done (F-101.4).
+    //
+    // F-101.2: `pub_key` comes off the same `TlsIdentityCtx` that produced the
+    // acceptor above. Computing it a second way is the mistake this comment
+    // exists to prevent — a key that disagrees with the certificate fails
+    // inside CredSSP, where the only symptom is a client that will not
+    // connect.
+    let builder = RdpServer::builder().with_addr(bind_addr);
+    let builder = match &auth {
+        auth::Mode::Nla(_) => builder.with_hybrid(acceptor, identity.pub_key.clone()),
+        auth::Mode::None => builder.with_tls(acceptor),
+    };
+    let mut server = builder
         .with_input_handler(handler)
         .with_display_handler(display)
         // Advertise NO bitmap codecs, so the server stays on the plain RDP 6.0
@@ -129,6 +153,18 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
     // bind fails instead, the server is dropped with the question still in its
     // queue, the reply channel closes, and this task ends without notifying
     // anyone.
+    // F-101.3. The engine reads these when it builds each connection's
+    // acceptor (`server.rs:815`), so they have to be in place before `run()`;
+    // without them CredSSP fails with "no credentials while doing credssp".
+    // `domain` stays `None` until there is an AD to put there (ADR-0012).
+    if let auth::Mode::Nla(credentials) = &auth {
+        server.set_credentials(Some(Credentials {
+            username: credentials.username.clone(),
+            password: credentials.password.clone(),
+            domain: None,
+        }));
+    }
+
     let events = server.event_sender().clone();
     let announce = tokio::spawn(async move {
         let (reply, answer) = oneshot::channel();
@@ -144,7 +180,15 @@ pub async fn run(params: SessionParams<'_>) -> Result<()> {
         }
     });
 
-    info!(%bind_addr, ?encoder, "serving RDP over TLS");
+    // F-101.16's counterpart inside the session: what the socket is actually
+    // serving, next to the address it serves it on.
+    info!(
+        %bind_addr,
+        ?encoder,
+        auth = %auth.label(),
+        user = %auth.username().unwrap_or("-"),
+        "serving RDP over TLS"
+    );
     let result = server.run().await;
     announce.abort();
     result

@@ -31,6 +31,23 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ironrdp-pdu = "=0.9.0"
 core-graphics = { version = "=0.25.0", features = ["highsierra"] }
 
+# Authentication (F-101, ADR-0012).
+#
+# `ironrdp-connector` is a dependency and not only a dev-dependency because the
+# audit log has to tell an authentication rejection from any other connection
+# error, and the only non-guessy way to do that is to downcast to
+# `ConnectorError` and read its kind (F-101.14). Pinned like the other engine
+# crates, and redirected to the fork by [patch.crates-io] below.
+ironrdp-connector = "=0.10.0"
+# The Keychain. `security-framework` over `keyring` — ADR-0012 §Odrzucone
+# alternatywy pkt 5: this project is macOS-only and reaches for Apple
+# frameworks directly everywhere else.
+security-framework = "3.7.0"
+# Reading a password without echoing it (F-101.8). The alternative was driving
+# `stty -echo` from a child process, which leaves the terminal with echo off if
+# the process dies between the two calls -- on the owner's own terminal.
+rpassword = "7.5.4"
+
 # Menu bar (F-111, ADR-0015): AppKit from Rust, in the same process as the
 # server. Not pinned exactly — ADR-0015 §Decyzja: the exact-version rule is for
 # the crates with a fast breaking-change cadence, and objc2-app-kit has not

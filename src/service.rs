@@ -42,7 +42,7 @@ use crate::input::cgevent::CgEventSink;
 use crate::input::logging::LoggingSink;
 use crate::input::state::ScreenGeometry;
 use crate::perms::{Permission, PermissionState};
-use crate::{input, perms, power, session, tls};
+use crate::{auth, input, perms, power, session, tls};
 
 /// Runs the service until `stop` fires, the session ends, or something fails.
 ///
@@ -56,7 +56,18 @@ pub async fn run<F>(config: &Config, stop: oneshot::Receiver<()>, on_listening: 
 where
     F: FnOnce() + Send + 'static,
 {
-    // Checked first because it is the cheapest thing that can fail and the
+    // F-101.10 comes before everything, including the bind. Refusing to put a
+    // socket on a reachable address without a password is the point of the
+    // requirement, and opening that socket for even a moment to find out the
+    // port is free would be doing the thing we are refusing to do.
+    //
+    // Resolved here rather than once in `main` so that the Keychain is read on
+    // every start. In menu-bar mode the service starts and stops many times in
+    // one process, and a password changed in between should take effect at the
+    // next start rather than at the next launch.
+    let auth = auth::resolve(config.auth_user.as_deref(), config.bind_addr)?;
+
+    // Checked next because it is the cheapest thing that can fail and the
     // likeliest: a second server, or a copy left running in another terminal.
     // Everything after this point costs a permission prompt or a capture
     // stream, which is a lot to spend before finding out the port is taken.
@@ -113,6 +124,7 @@ where
         height,
         dispatcher,
         clients_tx,
+        auth,
         stop,
         on_listening,
     )
@@ -273,6 +285,7 @@ async fn serve<F>(
     height: u32,
     dispatcher: input::InputDispatcher,
     clients: tokio::sync::watch::Sender<usize>,
+    auth: auth::Mode,
     stop: oneshot::Receiver<()>,
     on_listening: F,
 ) -> Result<()>
@@ -305,6 +318,7 @@ where
         dispatcher,
         encoder: config.encoder,
         clients,
+        auth,
         ready: Box::new(on_listening),
     });
 
