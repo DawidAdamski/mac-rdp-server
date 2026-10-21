@@ -53,6 +53,20 @@ bez terminala.
 - **F-111.13** (MUST) Ustawienia, których używa tryb paska (adres, port,
   ekran), MUSZĄ pochodzić z tego samego źródła co w trybie CLI, czyli z
   **F-112**. Bez tego ikonka umiałaby tylko to, co ktoś wpisał w terminalu.
+- **F-111.18** (MUST) W trybie paska proces po starcie **NIE nasłuchuje**.
+  Uruchomienie programu nie jest uruchomieniem usługi: gniazdo powstaje
+  dopiero po kliknięciu w menu, a wyjście z programu jest czymś innym niż
+  wyłączenie dostępu. Wprost z wymagania właściciela 2026-10-21: „To ze
+  aplikacja jest odpalona to nie powinno od razu znaczyc ze jest usluga".
+  Tryb CLI zostaje bez zmian — tam uruchomienie **jest** uruchomieniem usługi
+  (F-111.1).
+- **F-111.19** (MUST) Dopóki usługa jest wyłączona, proces NIE MOŻE przechwytywać
+  ekranu. Konsekwencja F-111.18, ale osobne wymaganie, bo da się ją przeoczyć
+  i wyjść na gorsze niż brak funkcji: aktywny strumień ScreenCaptureKit
+  zapala systemowy wskaźnik nagrywania ekranu w pasku menu, więc ikonka
+  mówiąca „wyłączone" obok systemowego „ten program nagrywa ekran" byłaby
+  kłamstwem o dostępie do ekranu. Włączenie usługi startuje capture,
+  wyłączenie je zatrzymuje.
 
 ### Granice i struktura
 
@@ -122,6 +136,10 @@ Ręczne (checklista właściciela — część macOS-owa, `CLAUDE.md` §Testy):
     zostaje zwolniony.
 11. **AC-11** Plik `~/.config/mac-rdp-server.toml` z innym portem → menu
     pokazuje **ten** port i serwer na nim nasłuchuje (spięcie z F-112).
+12. **AC-12** Zaraz po `mac-rdp-server --menu-bar`, **przed** jakimkolwiek
+    kliknięciem: `lsof -nP -iTCP:<port>` nie pokazuje nic, klient RDP się nie
+    łączy, ikonka jest w stanie „nie nasłuchuje", a w pasku menu **nie ma**
+    systemowego wskaźnika nagrywania ekranu (F-111.18, F-111.19).
 
 ## 5. Poza zakresem
 
@@ -154,6 +172,13 @@ domyślne.
 
 **Co jest już rozstrzygnięte pomiarem, a nie zostało do dyskusji przy
 approve:** że ikonka działa bez bundla `.app` (2026-10-14) i że AppKit da się
-pogodzić z tokio w jednym procesie (2026-10-16). Do rozstrzygnięcia przy
-approve zostaje sam zakres powyżej oraz **ADR-0015**, który jest w statusie
-Proposed i bez którego F-111.16 nie ma podstawy.
+pogodzić z tokio w jednym procesie (2026-10-16). **ADR-0015 jest Accepted**
+(2026-10-19, razem z tym specem), więc F-111.16 ma podstawę.
+
+**F-111.18 i F-111.19 dopisane 2026-10-21** na wymaganie właściciela, przed
+kodem: „Wazne by zaczac miec tez ikonko na pasku i moc startowac i stopowac
+dostepem za pomca tego. To ze aplikacja jest odpalona to nie powinno od razu
+znaczyc ze jest usluga". Pierwsze zdanie mieściło się już w F-111.5 i F-111.10;
+drugie nie mieściło się nigdzie — spec nie mówił, w jakim stanie proces się
+budzi. F-111.19 jest wnioskiem z tego samego zdania, nie nowym życzeniem:
+„usługa wyłączona" nie może znaczyć „ekran dalej nagrywany".
