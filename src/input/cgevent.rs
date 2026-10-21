@@ -102,6 +102,22 @@ impl CgEventSink {
         event.post(CGEventTapLocation::HID);
     }
 
+    /// The count the next button event should carry, advancing the sequence
+    /// (F-003.27).
+    ///
+    /// Split out from `handle_pointer` so the glue is testable: which position
+    /// a press is counted at, and which half of a click gets which count.
+    /// `handle_pointer` itself cannot be tested, because it posts — and
+    /// posting a click really clicks the machine running the test.
+    fn click_count(&mut self, button: MouseButton, pressed: bool, now: Instant) -> i64 {
+        if pressed {
+            let (x, y) = (self.cursor.x, self.cursor.y);
+            self.clicks.press(button, x, y, now)
+        } else {
+            self.clicks.release(button)
+        }
+    }
+
     fn handle_pointer(&mut self, source: &CGEventSource, event: PointerEvent) {
         match event {
             PointerEvent::MoveAbsolute { x, y } => {
@@ -135,14 +151,7 @@ impl CgEventSink {
                 }
             }
             PointerEvent::Button { button, pressed } => {
-                let (x, y) = (self.cursor.x, self.cursor.y);
-                // Before `buttons.set`, so a press is counted against where the
-                // previous press landed rather than against itself.
-                let clicks = if pressed {
-                    self.clicks.press(button, x, y, Instant::now())
-                } else {
-                    self.clicks.release(button)
-                };
+                let clicks = self.click_count(button, pressed, Instant::now());
                 self.buttons.set(button, pressed);
                 if let Some(ev) = self.build_button_event(source, button, pressed, clicks) {
                     self.post(&ev);
@@ -646,6 +655,56 @@ mod tests {
         assert!(
             interval > Duration::ZERO && interval < Duration::from_secs(10),
             "a usable interval, got {interval:?}"
+        );
+    }
+
+    /// F-003.28: a press is counted where the cursor is, so moving between two
+    /// presses breaks the sequence. The client sends moves and presses as
+    /// separate events (F-003.8), which is exactly how AC-18 goes wrong.
+    #[test]
+    fn f003_28_a_press_is_counted_at_the_cursor() {
+        let mut sink = sink_at(ScreenGeometry::new(0.0, 0.0, 1.0), CGPoint::new(100.0, 100.0));
+        let t0 = Instant::now();
+
+        assert_eq!(sink.click_count(MouseButton::Left, true, t0), 1);
+        assert_eq!(
+            sink.click_count(MouseButton::Left, true, t0 + Duration::from_millis(50)),
+            2,
+            "same place, in time: a double click"
+        );
+
+        // What a MoveAbsolute to another folder does to the remembered cursor.
+        sink.cursor = CGPoint::new(400.0, 100.0);
+        assert_eq!(
+            sink.click_count(MouseButton::Left, true, t0 + Duration::from_millis(100)),
+            1,
+            "a press somewhere else starts a new sequence, however quick"
+        );
+    }
+
+    /// F-003.27: press and release are not swapped — the release half takes the
+    /// count of the press it ends rather than opening a new sequence.
+    #[test]
+    fn f003_27_the_release_half_takes_the_count_of_its_press() {
+        let mut sink = sink_at(ScreenGeometry::new(0.0, 0.0, 1.0), CGPoint::new(10.0, 10.0));
+        let t0 = Instant::now();
+
+        assert_eq!(sink.click_count(MouseButton::Left, true, t0), 1);
+        assert_eq!(sink.click_count(MouseButton::Left, false, t0), 1);
+        assert_eq!(
+            sink.click_count(MouseButton::Left, true, t0 + Duration::from_millis(100)),
+            2
+        );
+        assert_eq!(
+            sink.click_count(MouseButton::Left, false, t0 + Duration::from_millis(110)),
+            2,
+            "both halves of the second click carry two"
+        );
+        // And a double click followed by a drag keeps its count, which is how
+        // selecting by words works.
+        assert_eq!(
+            sink.click_count(MouseButton::Left, false, t0 + Duration::from_millis(400)),
+            2
         );
     }
 
