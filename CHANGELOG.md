@@ -17,6 +17,14 @@ the manifest, or one that has no section in this file.
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-10-21
+
+Three ways the picture could freeze for good are fixed, a double click is a
+double click again, and the server can be started and stopped from an icon in
+the menu bar instead of a terminal. Everyone upgrading from 0.1.1 should: two
+of the freezes were measured on real sessions, at 10 minutes 50 seconds and at
+thirteen minutes.
+
 ### Fixed
 
 - **A double click is now a double click.** Every mouse press the server
@@ -173,6 +181,7 @@ the warnings before exposing it to anything.
   carrying two patches that are not upstream yet: the middle mouse button, and
   tolerating queued data during reactivation.
 
-[Unreleased]: https://github.com/DawidAdamski/mac-rdp-server/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/DawidAdamski/mac-rdp-server/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/DawidAdamski/mac-rdp-server/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/DawidAdamski/mac-rdp-server/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/DawidAdamski/mac-rdp-server/releases/tag/v0.1.0

@@ -239,9 +239,8 @@ INFO starting mac-rdp-server config=built-in defaults addr=127.0.0.1:3389 ...
 
 > **ℹ️ Note**
 >
-> Reading that file without being asked is **not in a release yet**. On 0.1.1 —
-> the version the tap installs — the path is ignored unless you point at it:
-> `mac-rdp-server --config ~/.config/mac-rdp-server.toml`.
+> That path is read from 0.1.2 onwards. On 0.1.1 and earlier it is ignored
+> unless you point at it: `mac-rdp-server --config ~/.config/mac-rdp-server.toml`.
 
 `mac-rdp-server --help` lists every option. `MAC_RDP_LOG` overrides
 `log_level`, so a bad config file can always be overridden from the shell.
@@ -257,21 +256,27 @@ INFO starting mac-rdp-server config=built-in defaults addr=127.0.0.1:3389 ...
 | Emoji and other non-keyboard text | The server handles Unicode input; `mstsc` never sends it. A client that sends Unicode events works |
 | Resizing the client window | The desktop stays the size of the Mac's display; the client scales or scrolls |
 | Starting at login, a launchd service, an `.app` bundle | F-109, F-106 — wave 5. The menu-bar icon itself is in, see [From the menu bar](#from-the-menu-bar) |
-| **Surviving a display sleep** | Fixed, but **not in a release yet**: 0.1.1 — the version the tap installs — still freezes for good when the display sleeps. See [the picture freezes](#the-picture-freezes-and-reconnecting-does-not-help) |
 
 ## Troubleshooting
 
 ### The picture freezes and reconnecting does not help
 
-**This affects 0.1.1, which is the version the tap installs.** It is fixed in
-the source, and the fix ships in the next release.
+**Fixed in 0.1.2.** If the picture freezes for good, check your version first:
 
-On 0.1.1, once the Mac's display goes to sleep, capture stops and never comes
-back. Reconnecting shows the same frozen frame, because the capture stream is
-started once per process and every connection shares it. The cause was a call
-into ScreenCaptureKit that waited for a callback with no time limit: when the
-display slept the callback never arrived and the recovery path parked there for
-the life of the process (F-007 section 8c, ADR-0016).
+```sh
+mac-rdp-server --version
+brew upgrade DawidAdamski/mac-rdp-server/mac-rdp-server
+```
+
+On 0.1.1 and earlier, once the Mac's display went to sleep, capture stopped and
+never came back. Reconnecting showed the same frozen frame, because the capture
+stream is started once per process and every connection shares it. The cause
+was a call into ScreenCaptureKit that waited for a callback with no time limit:
+when the display slept the callback never arrived and the recovery path parked
+there for the life of the process (F-007 section 8c, ADR-0016). Two further
+causes of the same symptom — the display idling to sleep underneath a live
+session, and a stream falling silent without an error — are fixed in 0.1.2 as
+well.
 
 On 0.1.1, two things help:
 
