@@ -399,6 +399,20 @@ mówi, że środkowy przycisk nie dochodzi z powodu ADR-0007. To nieprawda od
 2026-10-12 (ADR-0014, F-003.7) — ale to osobna sprawa od tej łatki i nie
 wchodzi w jej commit.
 
+6. **Zdarzenia przeciągania nie niosą licznika — luka w F-003.27.**
+   Wymaganie mówi o `…MouseDown` i `…MouseUp`, a **pomiar 2026-10-21**
+   pokazuje, że świeżo zbudowany `LeftMouseDragged` też niesie
+   `clickState = 1` (a `MouseMoved` — 0). Prawdziwy sprzęt niesie w zdarzeniach
+   przeciągania licznik tego kliknięcia, które przeciąganie zaczęło, i
+   `NSTextView` czyta go, żeby wiedzieć, czy zaznaczać **słowami** czy
+   znakami. Skutek: „dwuklik i przeciągnij" po naprawie zaznaczy prawdopodobnie
+   znakami, nie słowami — czyli objaw znacznie mniejszy niż ten naprawiony,
+   ale tej samej natury. Nie dopisane do kodu bez approve: to byłoby nowe
+   wymaganie (kandydat na **F-003.33**), a nie realizacja F-003.27. Koszt:
+   jedna linia w `handle_pointer` plus test. **Do decyzji właściciela**, najlepiej
+   po H-1 … H-4 — jeśli zaznaczanie słowami okaże się działać, wymaganie jest
+   niepotrzebne i lepiej tego nie dotykać.
+
 ## 8. Status
 
 **Verified** (2026-07-27).
