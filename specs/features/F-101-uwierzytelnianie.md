@@ -133,11 +133,14 @@ Granica architektoniczna z CLAUDE.md zostaje: API silnika (`with_hybrid`,
    a hasła nie widać w historii powłoki (`history | grep` nie znajduje).
 8. **AC-8** **Keychain nie pyta o pozwolenie przy każdym starcie.** Start,
    `cargo build --release`, start ponownie — bez okienka „chce użyć informacji
-   poufnych". **NIE SPEŁNIONE (2026-10-21).** Pyta nie po przebudowaniu, ale
-   przy każdym starcie, i nie da się tego obejść ACL-em elementu
-   (ADR-0012 §Pomiar 2026-10-21b). Kryterium zostaje w tej formie: ono jest
-   tym, co ma być prawdą, a nie opisem tego, co jest. Jak je spełnić, rozstrzyga
-   decyzja z §7 pkt 1.
+   poufnych". **CZĘŚCIOWO (2026-10-21).** Po jednorazowym „Zawsze zezwalaj"
+   kolejne starty **tej samej** binarki są ciche i kosztują 0,007–0,010 s;
+   przebudowanie unieważnia zgodę i okienko wraca, bo jest wiązana z cdhashem
+   (ADR-0012 §Pomiar 2026-10-21c). Literalne brzmienie kryterium — z
+   `cargo build --release` w środku — nie jest więc spełnione i **nie będzie**
+   bez prawdziwej tożsamości podpisu (F-106). Kryterium zostaje
+   niezmienione, bo opisuje stan docelowy; jego faktyczny koszt opisuje
+   §7 pkt 1.
 9. **AC-8a** **To samo na binarce z wydania, ręcznie.** Ustaw hasło binarką
    z `target/release`, połącz się, potem `brew upgrade` do nowszej wersji
    i połącz się ponownie **bez ponownego ustawiania hasła**. Bez okienka.
@@ -178,11 +181,22 @@ Granica architektoniczna z CLAUDE.md zostaje: API silnika (`with_hybrid`,
    pojawia się na ekranie właściciela, nie w wyjściu procesu. Historia obu
    pomiarów została w ADR-0012 celowo.
 
-   **To blokuje wyłącznie źródło sekretu, nie resztę speca.** Zaimplementowane
-   i zweryfikowane działa (patrz §8). Decyzja właściciela do podjęcia: F-106
-   przed F-101 (prawdziwa tożsamość podpisu), jednorazowe „Zawsze zezwalaj"
-   (niezmierzone), albo plik `0600` zamiast Keychaina — co wymaga poprawki
-   F-101.5 i F-101.6.
+   **Rozstrzygnięte tego samego dnia** (ADR-0012 §Pomiar 2026-10-21c): jedno
+   kliknięcie „Zawsze zezwalaj" ucisza kolejne starty do **0,007–0,010 s**
+   i zero okienek, a traci moc dokładnie wtedy, gdy zmienia się cdhash
+   binarki — po przebudowaniu okienko wraca. Mechanizm jest więc taki, jak
+   mówiła pierwotna prognoza tego speca.
+
+   **Decyzja właściciela: Keychain zostaje**, a kosztem jest jedno kliknięcie
+   na zainstalowaną binarkę. Plik `0600` odrzucony jako niepotrzebny.
+   Praktyczny rozkład kosztu: raz po instalacji z brew i raz po każdym
+   `brew upgrade` — do przyjęcia; jedno okienko na każdy lokalny build
+   startowany z hasłem — uciążliwe, ale to tylko praca nad kodem.
+
+   **Co z tego zostaje otwarte: F-109.** Usługa z `launchd` bez zalogowanej
+   sesji nie ma komu pokazać okienka, więc F-106 (bundel `.app` z prawdziwą
+   tożsamością podpisu) przestaje być dla F-109 kosmetyką i staje się
+   warunkiem. F-101 **nie** jest przez to blokowany.
 2. **NTLM jest kryptograficznie słaby.** To, co wybieramy, jest wymuszone
    przez protokół: RDP NLA to CredSSP, a CredSSP w praktyce to NTLM, gdy nie
    ma Kerberosa. Łagodzi to fakt, że cała wymiana idzie w środku TLS
@@ -221,10 +235,18 @@ Zaapprowane przez właściciela 2026-10-21, zaimplementowane tego samego dnia.
 | F-101.16 | `auth=nla user=f101-probe` / `auth=none user=-` w linii startowej |
 | F-101.13, F-101.14 | rozpoznanie odrzucenia typem `ConnectorErrorKind`, 5 testów |
 
-**Nie spełnione:** AC-8 — Keychain pyta przy każdym starcie (§7 pkt 1).
+**Spełnione częściowo:** AC-8 — ciche po jednorazowym „Zawsze zezwalaj", ale
+nie przez przebudowanie (§7 pkt 1).
 **Nie zweryfikowane, bo wymagają klienta:** AC-2, AC-3, AC-4, AC-10, i AC-8a.
 
-Dopóki AC-8 nie przechodzi, F-101 **nie może dostać statusu Verified**, a Fala 4
-nie może zostać zamknięta. Kod jest użyteczny już teraz dla celu z §1 — serwer
-bez hasła nie daje się wystawić poza loopback, co działa i jest przetestowane —
-ale uruchomienie z hasłem kosztuje jedno okienko na start.
+Do **Verified** brakuje ręcznych testów prawdziwym klientem: AC-2 (`mstsc` pyta
+o hasło przed pulpitem), AC-3 (złe hasło nie wpuszcza i daje linię `warn`),
+AC-4 (obraz, mysz, klawiatura i dwuklik działają jak przed F-101), AC-10
+(poprawne hasło z inną nazwą użytkownika jest odrzucane). To jest nowy blok
+w `specs/testy-reczne.md` — do dopisania.
+
+**Kandydat na nowe wymaganie, do decyzji właściciela:** README i `--help`
+powinny uprzedzać o jednorazowym okienku Keychaina po instalacji i po każdym
+`brew upgrade`. Dzisiaj użytkownik zobaczy je bez ostrzeżenia, a wygląda ono
+jak awaria. Nie dopisane jako F-101.19, bo spec jest zaapprowany i nie dopisuję
+do niego wymagań bez zgody.

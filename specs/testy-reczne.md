@@ -863,6 +863,102 @@ Jeśli masz pod ręką mysz z rolką — klik rolką w link otwiera kartę (B-1)
 
 ---
 
+## Blok I — Uwierzytelnianie (F-101)
+
+**Przed blokiem.** Ustaw hasło raz:
+
+```
+mac-rdp-server --auth-user rdp --set-password
+```
+
+Przy pierwszym starcie z hasłem **wyskoczy okienko Keychaina**. Kliknij
+**„Zawsze zezwalaj"** — to zmierzone i konieczne (ADR-0012 §Pomiar
+2026-10-21c); po tym kolejne starty tej samej binarki są ciche. Okienko wróci
+po `brew upgrade` albo po przebudowaniu ze źródeł, i to jest znane, nie awaria.
+
+---
+
+## I-1 — `mstsc` pyta o hasło **przed** pulpitem (F-101 AC-2)
+
+**Po co.** To jest całe F-101 w jednym zdaniu. Nie „pyta po pokazaniu pulpitu",
+nie „pyta zamiast" — pyta przed, i dopóki nie dostanie hasła, nie ma obrazu.
+
+**Co zrobić.** Uruchom serwer z `--auth-user rdp` i `--bind-addr 0.0.0.0`.
+Połącz się `mstsc` z innej maszyny albo z tej samej. Zanotuj, w którym
+momencie pojawia się pytanie o nazwę użytkownika i hasło — przed czy po
+pierwszym obrazie pulpitu.
+
+**ODPOWIEDŹ:**
+- Wynik:
+- Czy przed obrazem:
+
+---
+
+## I-2 — Złe hasło nie wpuszcza (F-101 AC-3)
+
+**Po co.** Odmowa musi być odmową, a nie wpuszczeniem z opóźnieniem. Przy
+okazji sprawdza log audytowy (F-101.14), który jest jedynym śladem próby.
+
+**Co zrobić.** Podaj `mstsc` **złe** hasło przy poprawnej nazwie użytkownika.
+Pulpit nie może się pokazać. Potem zajrzyj w log serwera — powinna być jedna
+linia `WARN` z `authentication rejected`, adresem klienta i nazwą użytkownika,
+**bez hasła**.
+
+**ODPOWIEDŹ:**
+- Czy wpuściło:
+- Czy w logu jest linia WARN (wklej ją):
+
+---
+
+## I-3 — Dobre hasło wpuszcza i nic nie psuje (F-101 AC-4)
+
+**Po co.** NLA zmienia sekwencję połączenia na poziomie protokołu
+(`with_hybrid` zamiast `with_tls`), więc może zepsuć wszystko, co było
+sprawdzone wcześniej. To test, że nie zepsuło.
+
+**Co zrobić.** Połącz się poprawnym hasłem. Sprawdź: obraz się rusza, mysz
+klika, klawiatura pisze, **dwuklik wchodzi do folderu** (to blok H, tutaj
+tylko czy przeżył NLA). W logu powinna być jedna linia `INFO`
+`authentication accepted` z adresem i nazwą użytkownika (F-101.13).
+
+**ODPOWIEDŹ:**
+- Obraz / mysz / klawiatura:
+- Dwuklik:
+- Czy w logu jest linia INFO (wklej ją):
+
+---
+
+## I-4 — Poprawne hasło z inną nazwą użytkownika jest odrzucane (F-101 AC-10)
+
+**Po co.** Dowód, że sprawdzana jest **para**, a nie samo hasło. Bez tego testu
+serwer mógłby wpuszczać każdego, kto zna hasło, pod dowolną nazwą.
+
+**Co zrobić.** Podaj `mstsc` poprawne hasło, ale nazwę użytkownika inną niż
+skonfigurowana w `--auth-user`. Musi odrzucić.
+
+**ODPOWIEDŹ:**
+- Wynik:
+
+---
+
+## I-5 — Hasło po `brew upgrade` (F-101 AC-8a)
+
+**Po co.** Kopia z brew ma inną tożsamość podpisu niż binarka lokalna, a
+wydaniowa niesie identyfikator wyprowadzony z LC_UUID, zmienny przy każdym
+linkowaniu. Zmierzone jest, że zgoda ginie z cdhashem — ten test mówi, ile to
+kosztuje przy prawdziwej aktualizacji.
+
+**Co zrobić.** Po najbliższym `brew upgrade` połącz się **bez ponownego
+ustawiania hasła**. Zanotuj, czy wyskoczyło okienko i czy jedno kliknięcie
+„Zawsze zezwalaj" wystarczyło na stałe dla tej wersji.
+
+**ODPOWIEDŹ:**
+- Czy okienko wyskoczyło:
+- Czy hasło trzeba było ustawiać ponownie:
+- Czy po kliknięciu kolejne starty są ciche:
+
+---
+
 ## Co się stanie z Twoimi odpowiedziami
 
 Dla każdego `PRZESZŁO` przenoszę wynik do sekcji Status właściwej
@@ -877,4 +973,6 @@ było złe. Nie naprawiam po cichu.
 Blok A zamyka F-008 i część F-004. Blok B zamyka F-003. Blok C zamyka F-007.
 Bloki A+B+C+F razem zamykają **Falę 3**. Blok E zamyka F-110 i może poczekać
 na wydanie. Blok G zamyka F-111 i należy już do Fali 5 — nie wstrzymuje
-Fali 3.
+Fali 3. Blok H zamyka dwuklik (F-003 AC-17 … AC-20). Blok I zamyka **F-101**
+i jest tym, czego brakuje do **Fali 4**; I-5 może poczekać na najbliższe
+wydanie, bo potrzebuje prawdziwego `brew upgrade`.

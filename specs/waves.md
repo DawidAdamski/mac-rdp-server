@@ -200,7 +200,7 @@ uwierzytelniania, więc kto dojdzie do portu, ten steruje Makiem.
 
 | Spec | Temat |
 |---|---|
-| F-101 | NLA / CredSSP — uwierzytelnianie **przed** sesją graficzną. **Zaimplementowane 2026-10-21** (`F-101-uwierzytelnianie.md`, Implemented). Dziewięć wymagań zweryfikowanych na binarce, **AC-8 nie spełnione**: Keychain pyta przy każdym starcie. Fala 4 nie domyka się bez decyzji o źródle sekretu (F-101 §7 pkt 1) |
+| F-101 | NLA / CredSSP — uwierzytelnianie **przed** sesją graficzną. **Zaimplementowane 2026-10-21** (`F-101-uwierzytelnianie.md`, Implemented). Dziewięć wymagań zweryfikowanych na binarce. AC-8 częściowo: ciche po jednorazowym „Zawsze zezwalaj", okienko wraca po przebudowaniu. Do **Verified** brakuje testów ręcznych klientem (AC-2, AC-3, AC-4, AC-10) |
 | F-108 | Hardening i model zagrożeń dla LAN |
 
 **Zbadany stan IronRDP 0.13.0 (2026-08-07), determinujący projekt F-101:**
@@ -561,12 +561,22 @@ utworzony z ACL dla **dowolnej aplikacji** (`security add-generic-password -A`)
 elementu, tylko brak tożsamości czytającego. Czyli ta ucieczka jest nie tyle
 niebezpieczna, co nieistniejąca.
 
-**Skutek dla fal:** **F-106 znów jest na drodze F-101.** Fala 4 nie domyka się
-bez decyzji właściciela o źródle sekretu: F-106 przed F-101 (prawdziwa
-tożsamość podpisu), jednorazowe „Zawsze zezwalaj" po instalacji (niezmierzone),
-albo plik `0600` zamiast Keychaina (poprawka F-101.5 i F-101.6). Kod F-101 jest
-zaimplementowany i w dziewięciu punktach zweryfikowany — blokuje wyłącznie
-sposób dostarczenia hasła.
+**Trzeci pomiar tego samego dnia (ADR-0012 §Pomiar 2026-10-21c) domknął
+mechanizm.** Jedno kliknięcie „Zawsze zezwalaj" i trzy kolejne starty tą samą
+binarką kosztowały **0,010 s, 0,007 s i 0,008 s** bez jednego okienka. Po
+przebudowaniu — cdhash `389669d1` → `b1275899` — okienko wróciło. Zgoda jest
+więc wiązana z cdhashem binarki, dokładnie tak, jak mówiła pierwotna prognoza
+ADR-a, której dwa pierwsze pomiary nie potrafiły potwierdzić.
+
+**Decyzja właściciela: Keychain zostaje**, kosztem jednego kliknięcia na
+zainstalowaną binarkę. Plik `0600` odrzucony jako niepotrzebny.
+
+**Skutek dla fal:** **F-106 nie blokuje F-101** — uwierzytelnianie wchodzi.
+F-106 blokuje natomiast **F-109** (launchd): usługa w tle bez zalogowanej sesji
+nie ma komu pokazać okienka, więc prawdziwa tożsamość podpisu przestaje tam być
+kosmetyką i staje się warunkiem. To drugi, mocniejszy powód dla F-106 obok
+uprawnień TCC należących do terminala. Fala 4 domyka się po ręcznych testach
+F-101 prawdziwym klientem (AC-2, AC-3, AC-4, AC-10).
 
 ## Decyzja właściciela 2026-10-12 — kolejność fal
 

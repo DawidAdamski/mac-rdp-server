@@ -1,6 +1,6 @@
 # ADR-0012 — Uwierzytelnianie: NLA/CredSSP, a hasło w Keychainie
 
-- **Status:** Accepted (2026-10-21), z **otwartą kwestią źródła sekretu** ponownie otwartą 2026-10-21 (§Pomiar 2026-10-21b)
+- **Status:** Accepted (2026-10-21). Źródło sekretu: Keychain, z jednorazową zgodą na zainstalowaną binarkę (§Pomiar 2026-10-21c)
 - **Dotyczy:** F-101 (uwierzytelnianie), F-108 (hardening), F-106 (bundel `.app`)
 - **Zastępuje:** nic. Pierwszy ADR o uwierzytelnianiu.
 
@@ -195,27 +195,63 @@ gdy czytał go nasz kod:
    Apple i trafia na listę zaufanych aplikacji jako konkretna tożsamość. To
    kontrprzykład pokazujący, że mechanizm działa — tylko nie dla nas.
 
-### Czego ten pomiar **nie** ustalił
+### Pomiar 2026-10-21c — „Zawsze zezwalaj" działa i ginie z cdhashem
 
-Czy jednorazowe kliknięcie **„Zawsze zezwalaj"** uciszy kolejne starty, i na
-jak długo. Z mechanizmu wynika, że dopisałoby cdhash tej jednej binarki, więc
-powinno wystarczyć do najbliższego przebudowania albo `brew upgrade` — ale to
-jest przewidywanie, a przewidywania w tej sprawie wyszły już raz fałszywe.
-Pomiar wymaga świadomego kliknięcia właściciela i nie został wykonany.
+Wykonany tego samego dnia, na wniosek właściciela, z jego świadomym
+kliknięciem. **To domyka mechanizm.**
 
-### Skutek dla decyzji
+Jedno kliknięcie „Zawsze zezwalaj" w okienku, a potem trzy kolejne starty tą
+samą binarką (cdhash `389669d1`), bez przebudowania:
 
-Wybór zostaje przy właścicielu i jest teraz węższy niż był:
+| start | odczyt Keychaina |
+|---|---|
+| 1 | 0,010 s |
+| 2 | 0,007 s |
+| 3 | 0,008 s |
 
-1. **F-106 przed F-101** — prawdziwa tożsamość podpisu (Developer ID), ACL
-   trwały przez przebudowania i wydania. Jedyna droga, w której Keychain
-   zostaje i AC-8 przechodzi.
-2. **„Zawsze zezwalaj" raz po każdej instalacji** — do zmierzenia; jeśli
-   działa, jest akceptowalne dla binarki z brew i bezużyteczne przy
-   codziennym przebudowywaniu.
-3. **Plik `0600` zamiast Keychaina** — wymaga poprawki F-101.5 i F-101.6.
-   Przestaje być gorszy od wariantu „dowolna aplikacja", bo ten wariant
-   okazał się nieistniejący.
+Milisekundy wobec 8–12 sekund przed kliknięciem, i zero okienek. Potem
+przebudowanie — cdhash `389669d1` → `b1275899` — i pierwszy start **znów
+wywołał okienko**.
+
+**Mechanizm, wreszcie zmierzony, nie zgadnięty:** zgoda jest wiązana
+z **cdhashem** binarki i przestaje obowiązywać dokładnie wtedy, gdy cdhash się
+zmienia. To jest to, co pierwotna prognoza tego ADR-a mówiła od początku
+(§Pomiar 2026-10-21b wniosek 2), a czego dwa poprzednie pomiary nie potrafiły
+potwierdzić — pierwszy, bo mierzył kod wyjścia, drugi, bo właściciel wszystko
+odrzucał.
+
+### Co to znaczy w praktyce
+
+| sytuacja | koszt |
+|---|---|
+| codzienne przebudowywanie w trakcie pracy nad kodem | jedno okienko **na każdy build**, który startuje z hasłem |
+| binarka z brew, raz zainstalowana | jedno okienko **raz**, potem cicho |
+| `brew upgrade` do nowej wersji | jedno okienko **raz po każdym upgrade** |
+| usługa z `launchd` (F-109) bez zalogowanej sesji | **nie do przyjęcia** — nie ma komu kliknąć |
+
+Czyli AC-8 w literalnym brzmieniu („start, `cargo build --release`, start
+ponownie — bez okienka") **nadal nie przechodzi**, ale cel użytkowy jest
+osiągalny bez F-106: na zainstalowanej binarce to jedno kliknięcie po
+instalacji. F-106 pozostaje konieczne dla **F-109**, bo usługa w tle nie ma
+komu pokazać okienka — i to jest teraz jego najmocniejsze uzasadnienie, obok
+uprawnień TCC należących do terminala.
+
+### Decyzja (2026-10-21)
+
+Właściciel wybrał najpierw zmierzyć „Zawsze zezwalaj", i wynik rozstrzygnął:
+**Keychain zostaje, a kosztem jest jedno kliknięcie na zainstalowaną binarkę.**
+
+Odrzucone w konsekwencji:
+
+1. **Plik `0600` zamiast Keychaina** — niepotrzebny. Keychain z jednorazową
+   zgodą daje to samo wygodnie i nie trafia do backupu jawnym tekstem.
+2. **Element „dla dowolnej aplikacji"** — nie tyle niebezpieczny, co
+   nieistniejący: zmierzono, że też wywołuje okienko (§Pomiar 2026-10-21b).
+
+**F-106 nie blokuje F-101** i uwierzytelnianie wchodzi teraz. F-106 blokuje
+natomiast **F-109** (launchd), bo usługa w tle nie ma komu pokazać okienka;
+dla F-109 prawdziwa tożsamość podpisu przestaje być kosmetyką i staje się
+warunkiem.
 
 ## Odrzucone alternatywy
 
