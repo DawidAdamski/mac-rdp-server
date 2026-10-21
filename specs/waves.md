@@ -136,6 +136,7 @@ osobną, pełną iterację, nie „przy okazji".
 | F-004 | Damage tracking — wysyłanie tylko zmienionych regionów | **Implemented** — czeka na pomiar i weryfikację ręczną |
 | F-005 | Kursor — `DisplayUpdate::{RGBAPointer, CachedPointer, DefaultPointer}` | **Draft** (2026-08-24) — czeka na approve; approve = zgoda na ADR-0010 |
 | **ADR-0013** (MS-RDPBCGR §6 pkt 1) | Pomiar D-1 + korekta opisu ścieżki obrazu z ADR-0006: Surface Bits `codecID = 0` zamiast RDP 6.0 (P-01) | **Proposed** (2026-09-17) — pomiar D-1 u właściciela; przed F-005 |
+| **ADR-0012** (F-101) | Uwierzytelnianie: NLA/CredSSP przez `with_hybrid`, hasło w Keychainie (CredSSP wymaga hasła odwracalnego, więc hash jest niewykonalny). Stan API przebadany ponownie 2026-10-21 na forku rev `ac4cd7db` — poprzedni przegląd był z 2026-08-07 na 0.13.0 z crates.io | **Proposed** (2026-10-21) razem z **F-101 Draft**. Przed kodem wymagany pomiar: czy Keychain pyta o pozwolenie po przebudowaniu binarki |
 | **F-003.22–F-003.26**, **F-003a.14–F-003a.18** (MS-RDPBCGR §6 pkt 2) | Input: Synchronize i koniec połączenia zwalniają trzymane klawisze i przyciski (P-04); surogaty UTF-16 i flagi zdarzeń Unicode (P-05) | F-003.22–26 **Verified** (2026-09-18); F-003a.14–18 i .19 **Implemented** — AC-10 czeka na klienta wysyłającego Unicode (FreeRDP / Windows App) |
 | **F-003.27–F-003.32** (zgłoszenie właściciela 2026-10-21) | Input: licznik kliknięć — dwuklik był niemożliwy, bo każde wciśnięcie niosło `clickState = 1`, a zwolnienie 0 (pomiar 2026-10-21). Liczby kliknięć nie ma w Mouse Event PDU, więc serwer wylicza ją z czasu i odległości, a interwał bierze z `NSEvent.doubleClickInterval` | **Implemented** (2026-10-21), Approved tego samego dnia. AC-17 … AC-20 = blok H w `specs/testy-reczne.md`. Odsłania niezaliczoną połowę AC-3 z 2026-07-27 |
 | **F-008** (MS-RDPBCGR §6 pkt 3) | Suppress Output / Refresh Rect (P-06): przerwa w wysyłaniu, pełne odświeżenie przez ponowną aktywację; kandydat na przyczynę Cmd+Tab z F-004 AC-5 | **Implemented** (2026-09-18, G3) — czeka na test ręczny (BRAMKA C, AC-3…AC-9); przed F-005 |
@@ -199,7 +200,7 @@ uwierzytelniania, więc kto dojdzie do portu, ten steruje Makiem.
 
 | Spec | Temat |
 |---|---|
-| F-101 | NLA / CredSSP — uwierzytelnianie **przed** sesją graficzną |
+| F-101 | NLA / CredSSP — uwierzytelnianie **przed** sesją graficzną. **Spec napisany 2026-10-21** (`F-101-uwierzytelnianie.md`, Draft) razem z **ADR-0012** |
 | F-108 | Hardening i model zagrożeń dla LAN |
 
 **Zbadany stan IronRDP 0.13.0 (2026-08-07), determinujący projekt F-101:**
@@ -389,6 +390,27 @@ Właściciel zaakceptował naraz pięć dokumentów i rekomendowaną kolejność
    i F-111.19** na wymaganie właściciela („To ze aplikacja jest odpalona to
    nie powinno od razu znaczyc ze jest usluga"), czyli serwer w trybie paska
    startuje **wyłączony** i wyłączony nie przechwytuje ekranu.
+
+### Decyzje właściciela 2026-10-21 — wydanie 0.1.2 i uwierzytelnianie
+
+1. **Dwuklik.** Zgłoszenie w trakcie dnia pracy: „szybki 2 klik nie dziala",
+   przy wchodzeniu do folderu w Finderze i w folder na stronie Dysku Google.
+   Okazało się **niespełnionym kryterium AC-3 z 2026-07-24**, a nie nową
+   funkcją: dwuklik był w nim od początku, a podpis z 2026-07-27 objął
+   pojedynczy klik i menu kontekstowe. Przyczyna zmierzona (`clickState`),
+   naprawa w **F-003.27 … F-003.32** (Approved i Implemented 2026-10-21).
+2. **Wydanie 0.1.2 autoryzowane** — „mozna juz 0.1.2 wydac" — **przed**
+   ręcznymi blokami G i H, świadomie, tak samo jak przy 0.1.0
+   (§Decyzje 2026-10-13 pkt 1). Wydane 2026-10-21: trzy przyczyny zamarzania,
+   dwuklik, pasek menu i domyślny plik konfiguracyjny.
+3. **Uwierzytelnianie wchodzi teraz** — „lecmy z uwierzytelnianiem bo to jest
+   spory brak". Stąd **F-101** (Draft) i **ADR-0012** (Proposed) napisane
+   2026-10-21. Najważniejsze ustalenie: poprzedni przegląd API był z sierpnia
+   i dotyczył crates.io 0.13.0, a przebadanie forka pokazało dwie rzeczy,
+   których tamta notatka nie zawierała — `with_hybrid` jest jednym wywołaniem
+   buildera, a `pub_key` wystawia `TlsIdentityCtx`, którego już używamy.
+   Osobno wyszło, że `CredentialValidator` **nie** jest alternatywą dla NLA,
+   bo działa tylko na ścieżce bez HYBRID.
 
 ### Pomiar 2026-10-19 — dlaczego RDP zamarza po dłuższej bezczynności
 

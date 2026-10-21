@@ -1,7 +1,7 @@
 # F-004 — Damage tracking: wysyłamy tylko to, co się zmieniło
 
 - **Fala:** 3 (Jakość MVP)
-- **Status:** Implemented (2026-08-07); weryfikacja w toku (2026-08-25) — AC-1/2/6/7 zaliczone, AC-3/AC-4 do zrobienia
+- **Status:** Implemented (2026-08-07); weryfikacja 2026-08-25 — wszystkie AC zaliczone poza **AC-5** (§8 pkt 6)
 - **Data:** 2026-08-07
 - **ADR:** ADR-0009 (źródło damage'u), ADR-0005 (stride), ADR-0006 (kodeki)
 - **Zależności:** brak wejściowych; **blokuje** sensowność F-005 (kursor)
@@ -221,9 +221,9 @@ Cała sesja narastająco (10 063 klatki, ~16 min): `bytes_sent = 2 958 819 328`,
 |---|---|
 | AC-1 CI | **Zaliczone** |
 | AC-2 statyczny pulpit | **Zaliczone** (2026-08-25) — liczby wyżej; obraz nie zamarł, po ruchu myszy wraca natychmiast |
-| AC-3 pisanie w edytorze | Do sprawdzenia |
-| AC-4 przewijanie strony | Do sprawdzenia |
-| AC-5 brak duchów | **Częściowo** — przeciąganie okna i animacja minimalizacji: aktualizacja postępuje kafelkami przy szybkim ruchu, ale po zatrzymaniu obraz **sam** staje się poprawny, bez resztek. Zostaje Cmd+Tab, zamknięcie okna i wersja ostra z niskim `--max-fps` |
+| AC-3 pisanie w edytorze | **Zaliczone** (2026-08-25) — pisanie płynne, bez odczuwalnego opóźnienia |
+| AC-4 przewijanie strony | **Zaliczone** (2026-08-25) — obraz spójny; właściciel: „o wiele lepiej scrolluje niż wersja na VNC" |
+| AC-5 brak duchów | **Częściowo** — przeciąganie okna i animacja minimalizacji: aktualizacja postępuje kafelkami przy szybkim ruchu, ale po zatrzymaniu obraz **sam** staje się poprawny, bez resztek. **Cmd+Tab: objaw niewyjaśniony, patrz §8 pkt 6.** Zostaje też zamknięcie okna i wersja ostra z niskim `--max-fps` |
 | AC-6 zmierzony zysk | **Zaliczone** — ta sekcja |
 | AC-7 `--encoder full` | **Zaliczone** (2026-08-25) — obraz poprawny, jak w Fali 1, potwierdzone wzrokowo przez właściciela; liczby niżej |
 
@@ -339,15 +339,51 @@ w edytorze (AC-3)** i **przewijanie strony (AC-4)** — dopisujemy tam, nie tuta
 5. **Pamięć na kopię klatki na połączenie.** ~23,8 MB przy Retinie. Nieistotne
    dla jednego klienta, warte odnotowania przy F-105 (multi-monitor).
 
+6. **OTWARTE: po Cmd+Tab obraz czasami „zostaje na klatce".** Zaobserwowane
+   2026-08-25 przy weryfikacji AC-5: po zwolnieniu Cmd i wybraniu okna obraz
+   **czasami** się nie odświeża. Objaw jest sporadyczny.
+
+   **Świadomie odłożone przez właściciela do późniejszej weryfikacji** —
+   nie umiemy dziś odróżnić usterki od nieznanego zachowania macOS-a, a AC-5
+   zostaje z tego powodu **niezaliczone**, a nie naciągnięte.
+
+   Co log **wyklucza** (przebieg z 2026-08-25, enkoder `damage`, 36 tys. klatek):
+   capture nie stoi (`received`/`delivered` rosną równo, ~24–29 fps, bez
+   przerw), enkoder nie stoi (`regions` rośnie o 1300–2000 na okno 10 s),
+   `dropping frame` wystąpiło 14 razy w całym przebiegu. **W chwili objawu
+   serwer produkuje i wysyła regiony.** Sprawdzone też `align_to_four`
+   (`damage.rs:410`): przy szerokości 5120 prawa krawędź przycina się czysto,
+   region nie wychodzi poza kadr.
+
+   **Jak to rozstrzygnąć, gdy wrócimy** — dwa kroki, w tej kolejności:
+
+   1. **Pytanie, które dzieli podejrzanych na pół:** czy ruszenie myszą po
+      zamarzniętym obszarze go naprawia? Jeśli **tak** — jakaś aktualizacja
+      zaginęła po drodze, a strumień żyje. Jeśli **nie**, i stoi cały ekran
+      niezależnie od działań — stanął transport, czyli zupełnie inna klasa
+      błędu (bliżej F-007 niż F-004).
+   2. **Powtórka z `ironrdp_server=debug` w filtrze.** Dziś logujemy tylko
+      `mac_rdp_server`, więc **nie widzimy, co robi silnik**. Główny podejrzany:
+      IronRDP po cichu odrzuca aktualizację wykraczającą poza wynegocjowany
+      rozmiar pulpitu i mówi o tym wyłącznie na `debug`
+      (`ironrdp-server-0.13.0/src/encoder/mod.rs:379-386`). To dałoby dokładnie
+      ten objaw — pojedyncze kafelki, które nigdy nie doszły, i obraz „stoi",
+      dopóki coś tego miejsca nie przemaluje.
+
+   **Uwaga na przyszłość wykraczająca poza F-004:** ten sam mechanizm
+   odrzucania jest miną przy **F-006** (resize sesji). Jeśli geometria klatki
+   rozjedzie się z rozmiarem pulpitu wynegocjowanym przy połączeniu, **każda**
+   aktualizacja zostanie po cichu wyrzucona i klient zamarznie na dobre.
+
 ## 9. Status
 
 **Approved** (2026-08-07). **Implemented** (2026-08-07).
 
-**Weryfikacja 2026-08-25:** zaliczone **AC-1, AC-2, AC-6, AC-7**; AC-5
-częściowo (przeciąganie okna i animacja — bez duchów; zostaje Cmd+Tab,
-zamknięcie okna i wersja z niskim `--max-fps`). Do zrobienia **AC-3**
-(pisanie) i **AC-4** (przewijanie). Pomiary i wnioski w §7, nowy znany efekt
-uboczny w §8 pkt 4.
+**Weryfikacja 2026-08-25:** zaliczone **AC-1, AC-2, AC-3, AC-4, AC-6, AC-7**.
+**Niezaliczone AC-5** — Cmd+Tab czasami zostawia obraz nieodświeżony, objaw
+niewyjaśniony i świadomie odłożony przez właściciela do późniejszej
+weryfikacji (§8 pkt 6). Pomiary i wnioski w §7, znany efekt uboczny
+w §8 pkt 4.
 
 Status **Verified** nadaje się fali, nie specowi (F-007 §8) — F-004 czeka
 więc na weryfikację zamykającą Falę 3 razem z F-007 AC-3/AC-6.
