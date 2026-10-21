@@ -12,10 +12,11 @@
 // Apple ships no Rust bindings for these four symbols, and pulling in a second
 // binding tree for two booleans is not worth it (ADR-0003).
 //
-// One of two unsafe sites in the crate. The other is a single expression in
+// One of three unsafe sites in the crate. The others are a single expression in
 // `capture::screen`, where `apple-cf` exposes a locked pixel buffer's bytes
-// only through an unsafe fn (ADR-0016); it carries its own `#[expect]` rather
-// than a module-wide allow.
+// only through an unsafe fn (ADR-0016) and which carries its own `#[expect]`
+// rather than a module-wide allow, and `menubar`, where AppKit cannot be driven
+// without it (ADR-0015).
 #![allow(unsafe_code)]
 
 use tracing::{error, info, warn};
@@ -141,6 +142,20 @@ pub fn survey() -> Vec<(Permission, PermissionState)> {
 #[must_use]
 pub fn all_granted(readings: &[(Permission, PermissionState)]) -> bool {
     readings.iter().all(|&(_, state)| state == PermissionState::Granted)
+}
+
+/// The System Settings panel that grants this permission (F-111.7).
+///
+/// `x-apple.systempreferences:` is the documented way to open a specific
+/// privacy panel; the anchor after `?` is what picks the row. Kept next to
+/// [`explain`] on purpose — the words and the destination have to agree, and
+/// they only do that if they are read together.
+#[must_use]
+pub const fn settings_url(permission: Permission) -> &'static str {
+    match permission {
+        Permission::ScreenRecording => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+        Permission::Accessibility => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+    }
 }
 
 /// Renders a survey for a human reading a terminal (F-110.15).

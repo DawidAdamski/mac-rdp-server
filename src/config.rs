@@ -100,6 +100,13 @@ pub struct Cli {
     #[arg(long, value_name = "KIND")]
     pub encoder: Option<EncoderKind>,
 
+    /// Run as a menu-bar icon instead of a foreground server (F-111.1).
+    ///
+    /// The server starts **stopped** in this mode: launching the program is not
+    /// starting the service (F-111.18). Without the flag nothing changes.
+    #[arg(long)]
+    pub menu_bar: bool,
+
     /// Print whether Screen Recording and Accessibility are granted, say what
     /// to click for the ones that are not, and exit. Exits non-zero if any is
     /// missing, so a script can gate on it. Checks only: it never prompts.
@@ -342,6 +349,7 @@ mod tests {
             log_level: Some("trace".to_owned()),
             config: None,
             no_config: false,
+            menu_bar: false,
             test_pattern: None,
             encoder: Some(EncoderKind::Full),
             // Not a configuration key: `--check-permissions` is a mode that

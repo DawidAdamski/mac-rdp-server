@@ -31,6 +31,21 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ironrdp-pdu = "=0.9.0"
 core-graphics = { version = "=0.25.0", features = ["highsierra"] }
 
+# Menu bar (F-111, ADR-0015): AppKit from Rust, in the same process as the
+# server. Not pinned exactly — ADR-0015 §Decyzja: the exact-version rule is for
+# the crates with a fast breaking-change cadence, and objc2-app-kit has not
+# released since 2025-10-04. `Cargo.lock` is in the repo, so a release is
+# frozen regardless.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = [
+    "NSApplication", "NSStatusBar", "NSStatusItem", "NSStatusBarButton",
+    "NSMenu", "NSMenuItem", "NSButton", "NSControl", "NSResponder",
+    "NSView", "NSWindow", "NSImage", "NSWorkspace", "NSRunningApplication",
+] }
+objc2-foundation = { version = "0.3", features = [
+    "NSString", "NSGeometry", "NSTimer", "NSDate", "NSURL",
+] }
+
 [dev-dependencies]
 ironrdp-blocking = "0.10.0"
 ironrdp-connector = "=0.10.0"
