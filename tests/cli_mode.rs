@@ -128,9 +128,15 @@ fn f111_3_cli_mode_still_starts_serves_and_stops_on_a_signal() {
     let home = temp_home("signal");
     let mut child = spawn_server(port, &home);
 
+    // "accepting connections", not "serving RDP over TLS": the latter is
+    // logged before `server.run()`, which is what binds the socket, so a test
+    // that connected on it raced the listener and lost on a busy CI runner
+    // (run 39638209007). This line comes from inside the accept loop, after
+    // the bind — the same rule as F-111.11, which is about a menu that must
+    // not say "listening" before there is a socket.
     let log = strip_ansi(&wait_for_log(
         &mut child,
-        "serving RDP over TLS",
+        "accepting connections",
         Duration::from_secs(30),
     ));
 
